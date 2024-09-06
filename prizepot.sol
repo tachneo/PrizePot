@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Unlicensed
-pragma solidity ^0.8.10;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -7,7 +7,6 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 
-// Define Uniswap Interfaces
 interface IUniswapV2Router02 {
     function factory() external pure returns (address);
     function WETH() external pure returns (address);
@@ -45,7 +44,6 @@ contract MemeCoin is Context, IERC20, ReentrancyGuard, Pausable {
     uint256 public _walletMax = 20000000000 * 10**9; // Max wallet size (2% of total supply)
     uint256 private minimumTokensBeforeSwap = 500000000 * 10**9; // 0.05% of total supply
     
-    // Wallet Addresses for Distribution
     address payable public marketingWallet = payable(0x666eda6bD98e24EaF8bcA9D1DD46617ECd61E5b2);
     address payable public teamWallet = payable(0x0de504d353375A999d2d983eC37Ed6FFd186CbA1);
     address payable public liquidityWallet = payable(0x8aF9D64eF4Eea9806FD191a33493b238B90A4d86);
@@ -93,8 +91,16 @@ contract MemeCoin is Context, IERC20, ReentrancyGuard, Pausable {
     bool public swapAndLiquifyEnabled = true;
     bool public checkWalletLimit = true;
 
+    // Ownership management
+    address private _owner;
+    address private _pendingOwner;
+    bool public ownershipTransferredToSafe = false;
+    uint256 public timelockDuration = 1 days; // 1-day timelock for critical functions
+    mapping(bytes32 => uint256) public timelockFunctions;
+
     event SwapAndLiquify(uint256 tokensSwapped, uint256 ethReceived, uint256 tokensIntoLiquidity);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferInitiated(address indexed previousOwner, address indexed newOwner);
 
     modifier lockTheSwap {
         inSwapAndLiquify = true;
@@ -118,11 +124,10 @@ contract MemeCoin is Context, IERC20, ReentrancyGuard, Pausable {
         _;
     }
 
-    // Ownership management variables and functions
-    address private _owner;
-    address private _pendingOwner;
-
-    event OwnershipTransferInitiated(address indexed previousOwner, address indexed newOwner);
+    modifier timelockedFunction(bytes32 functionHash) {
+        require(block.timestamp >= timelockFunctions[functionHash], "Function is timelocked");
+        _;
+    }
 
     modifier onlyOwner() {
         require(_owner == _msgSender(), "Ownable: caller is not the owner");
@@ -151,6 +156,18 @@ contract MemeCoin is Context, IERC20, ReentrancyGuard, Pausable {
 
         _balances[_msgSender()] = _totalSupply;
         emit Transfer(address(0), _msgSender(), _totalSupply);
+    }
+
+    // Function to transfer ownership to Gnosis Safe (timelocked)
+    function transferOwnershipToSafe() external onlyOwner timelockedFunction(keccak256("transferOwnershipToSafe")) {
+        require(!ownershipTransferredToSafe, "Ownership is already transferred to Safe and cannot be reverted");
+        transferOwnership(0xDD5F797E224014Ac85e2A6AD1420Ac0e8d424574); // Gnosis Safe address
+        ownershipTransferredToSafe = true;
+    }
+
+    // Timelock initiation for functions
+    function initiateTimelockedFunction(bytes32 functionHash) external onlyOwner {
+        timelockFunctions[functionHash] = block.timestamp + timelockDuration;
     }
 
     // Basic ERC20 Functions
@@ -196,7 +213,6 @@ contract MemeCoin is Context, IERC20, ReentrancyGuard, Pausable {
         return true;
     }
 
-    // Add the missing _approve function
     function _approve(address owner, address spender, uint256 amount) private {
         require(owner != address(0), "ERC20: approve from the zero address");
         require(spender != address(0), "ERC20: approve to the zero address");
@@ -223,7 +239,7 @@ contract MemeCoin is Context, IERC20, ReentrancyGuard, Pausable {
     uint256 public constant MAX_BUY_TAX = 10; // Max 10% buy tax
     uint256 public constant MAX_SELL_TAX = 10; // Max 10% sell tax
 
-    function setBuyTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
+    function setBuyTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner timelockedFunction(keccak256("setBuyTaxes")) {
         require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_BUY_TAX, "Buy taxes exceed limit");
         buyLiquidityFee = newLiquidityFee;
         buyMarketingFee = newMarketingFee;
@@ -232,7 +248,7 @@ contract MemeCoin is Context, IERC20, ReentrancyGuard, Pausable {
         totalTaxIfBuying = buyLiquidityFee.add(buyMarketingFee).add(buyTeamFee).add(buyDonationFee);
     }
 
-    function setSellTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
+    function setSellTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner timelockedFunction(keccak256("setSellTaxes")) {
         require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_SELL_TAX, "Sell taxes exceed limit");
         sellLiquidityFee = newLiquidityFee;
         sellMarketingFee = newMarketingFee;
@@ -400,4 +416,3 @@ contract MemeCoin is Context, IERC20, ReentrancyGuard, Pausable {
 
     receive() external payable {}
 }
-
