@@ -77,20 +77,4 @@ The code is structured into the following key parts:
 🧑‍💻 Contributing
 We welcome contributions to enhance the PrizePot token contract! Please submit a pull request with a clear description of the changes.
 
-
-### **Explanation of Structure:**
-
-1. **Sections**:
-   - The `Overview` provides a quick summary of the token's features and contract highlights.
-   - **Features**, **Functions**, and **Contract Security** are written in a bullet-point style to make them easily scannable and understandable.
-   - **How to Use** explains the steps to set up the project locally.
-   - **Contributing** and **License** sections follow best practices for open-source projects.
-
-2. **Code Block Syntax**:
-   - Code blocks are enclosed with triple backticks (` ``` `) to display them in a monospaced font for better readability.
-
-3. **Use of Emojis**:
-   - Emojis like 🏆, 🚀, and 🔒 add a fun and visual element to the document, making it more engaging.
-
-4. **Organized**:
-   - The content is well-organized under headings and subheadings, making it easy to navigate.
+contact on prizepot@outlook.com | https://x.com/prize_pot
