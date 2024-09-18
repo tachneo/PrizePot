@@ -159,7 +159,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     mapping(address => bool) public isWalletLimitExempt;
     mapping(address => bool) public isTxLimitExempt;
 
-    // Anti-Whale Mechanism with Dynamic Protection
+    // Dynamic Anti-Whale Mechanism
     uint256 public whaleThreshold;
     uint256 public higherTaxRate = 15; // 15%
     uint256 public whaleCooldown = 1 hours;
@@ -251,13 +251,13 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // =========================
 
     modifier antiBot(address sender) {
-        require(block.timestamp - _lastTxTime[sender] >= botCooldownTime, "Cooldown: Please wait before sending again");
+        require(block.timestamp - _lastTxTime[sender] >= botCooldownTime, "Cooldown: Please wait before sending again.");
         _lastTxTime[sender] = block.timestamp;
         _;
     }
 
     modifier ensureGasPrice() {
-        require(tx.gasprice <= maxGasPrice, "Gas price exceeds limit");
+        require(tx.gasprice <= maxGasPrice, "Gas price exceeds limit.");
         _;
     }
 
@@ -346,16 +346,31 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // Internal Functions
     // =========================
 
+    function updateWhaleThreshold() internal {
+        whaleThreshold = (_totalSupply * 1) / 100; // 1% of total supply, dynamic adjustment
+    }
+
+    function updateWhaleCooldown() internal {
+        whaleCooldown = 1 hours; // Standard cooldown period
+    }
+
+    function _beforeTransfer() internal {
+        updateWhaleThreshold();
+        updateWhaleCooldown();
+    }
+
     function _transfer(address sender, address recipient, uint256 amount) internal {
-        require(sender != address(0), "ERC20: transfer from the zero address");
-        require(recipient != address(0), "ERC20: transfer to the zero address");
+        require(sender != address(0), "ERC20: transfer from the zero address.");
+        require(recipient != address(0), "ERC20: transfer to the zero address.");
+
+        _beforeTransfer(); // Dynamically update whale protection
 
         if(!isTxLimitExempt[sender] && !isTxLimitExempt[recipient]) {
-            require(amount <= maxTxAmount, "Transfer amount exceeds the maxTxAmount.");
+            require(amount <= maxTxAmount, "Transfer exceeds max transaction limit.");
         }
 
         if(checkWalletLimit && !isWalletLimitExempt[recipient]) {
-            require(_balances[recipient] + amount <= walletMax, "Wallet limit exceeded");
+            require(_balances[recipient] + amount <= walletMax, "Recipient wallet balance exceeds the allowed limit.");
         }
 
         uint256 finalAmount = isExcludedFromFee[sender] || isExcludedFromFee[recipient] ? amount : _takeFee(sender, amount);
@@ -370,7 +385,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
         uint256 feeAmount = 0;
 
         if(amount >= whaleThreshold) {
-            require(block.timestamp - lastWhaleTradeTime[sender] >= whaleCooldown, "Anti-Whale: Cooldown in effect");
+            require(block.timestamp - lastWhaleTradeTime[sender] >= whaleCooldown, "Anti-Whale: Cooldown in effect, try again later.");
             feeAmount = (amount * higherTaxRate) / 100;
             lastWhaleTradeTime[sender] = block.timestamp;
         } else {
@@ -386,8 +401,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     function _approve(address ownerAddr, address spender, uint256 amount) private {
-        require(ownerAddr != address(0), "ERC20: approve from the zero address");
-        require(spender != address(0), "ERC20: approve to the zero address");
+        require(ownerAddr != address(0), "ERC20: approve from the zero address.");
+        require(spender != address(0), "ERC20: approve to the zero address.");
 
         _allowances[ownerAddr][spender] = amount;
         emit Approval(ownerAddr, spender, amount);
@@ -398,8 +413,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // =========================
 
     function buybackAndBurn(uint256 amount) external onlyOwner {
-        require(buybackReserve >= amount, "Insufficient buyback reserve");
-        // Simulating buyback process
+        require(buybackReserve >= amount, "Insufficient buyback reserve.");
         buybackReserve -= amount;
         _burn(address(this), amount);
         emit BuybackAndBurn(amount);
@@ -410,7 +424,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // =========================
 
     function crossChainTransfer(address recipient, uint256 amount, string memory destinationChain) external {
-        require(_balances[msg.sender] >= amount, "Insufficient balance for transfer");
+        require(_balances[msg.sender] >= amount, "Insufficient balance for transfer.");
         _balances[msg.sender] -= amount;
         emit CrossChainTransferInitiated(recipient, amount, destinationChain);
     }
@@ -429,14 +443,14 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     function voteOnProposal(uint256 proposalIndex) public {
-        require(_balances[msg.sender] > 0, "Must be a token holder to vote");
-        require(!hasVoted[msg.sender], "You have already voted on this proposal");
+        require(_balances[msg.sender] > 0, "Must be a token holder to vote.");
+        require(!hasVoted[msg.sender], "You have already voted on this proposal.");
         proposals[proposalIndex].voteCount += _balances[msg.sender];
         hasVoted[msg.sender] = true;
     }
 
     function executeProposal(uint256 proposalIndex) public onlyOwner {
-        require(proposals[proposalIndex].voteCount > totalSupply() / 2, "Not enough votes to pass");
+        require(proposals[proposalIndex].voteCount > totalSupply() / 2, "Not enough votes to pass.");
         proposals[proposalIndex].executed = true;
         emit ProposalExecuted(proposalIndex);
     }
@@ -446,7 +460,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // =========================
 
     function airdropTokens(address[] calldata recipients, uint256[] calldata amounts) external onlyOwner nonReentrant whenNotPaused {
-        require(recipients.length == amounts.length, "Airdrop: recipients and amounts length mismatch");
+        require(recipients.length == amounts.length, "Airdrop: recipients and amounts length mismatch.");
         for(uint256 i = 0; i < recipients.length; i++) {
             _transfer(_msgSender(), recipients[i], amounts[i]);
         }
@@ -461,8 +475,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     function _burn(address account, uint256 amount) internal {
-        require(account != address(0), "Burn: burn from the zero address");
-        require(_balances[account] >= amount, "Burn: burn amount exceeds balance");
+        require(account != address(0), "Burn: burn from the zero address.");
+        require(_balances[account] >= amount, "Burn: burn amount exceeds balance.");
 
         _balances[account] -= amount;
         _totalSupply -= amount;
@@ -474,9 +488,9 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // =========================
 
     function setVestingSchedule(address account, uint256 totalAmount, uint256 releaseTime) external onlyOwner {
-        require(account != address(0), "Vesting: invalid account");
-        require(totalAmount > 0, "Vesting: total amount must be greater than zero");
-        require(releaseTime > block.timestamp, "Vesting: release time must be in the future");
+        require(account != address(0), "Vesting: invalid account.");
+        require(totalAmount > 0, "Vesting: total amount must be greater than zero.");
+        require(releaseTime > block.timestamp, "Vesting: release time must be in the future.");
 
         vestingSchedules[account] = VestingSchedule({
             totalAmount: totalAmount,
@@ -490,12 +504,12 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
 
     function releaseVestedTokens() external nonReentrant whenNotPaused {
         VestingSchedule storage schedule = vestingSchedules[msg.sender];
-        require(schedule.isActive, "Vesting: no active schedule");
-        require(block.timestamp >= schedule.releaseTime, "Vesting: tokens are still locked");
-        require(schedule.amountReleased < schedule.totalAmount, "Vesting: all tokens have been released");
+        require(schedule.isActive, "Vesting: no active schedule.");
+        require(block.timestamp >= schedule.releaseTime, "Vesting: tokens are still locked.");
+        require(schedule.amountReleased < schedule.totalAmount, "Vesting: all tokens have been released.");
 
         uint256 amountToRelease = schedule.totalAmount - schedule.amountReleased;
-        require(amountToRelease > 0, "Vesting: no tokens available for release");
+        require(amountToRelease > 0, "Vesting: no tokens available for release.");
 
         schedule.amountReleased += amountToRelease;
         if(schedule.amountReleased >= schedule.totalAmount) {
@@ -512,24 +526,24 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // =========================
 
     function updateMaxGasPrice(uint256 newGasPrice) external onlyOwner {
-        require(newGasPrice > 0, "Owner: gas price must be greater than zero");
+        require(newGasPrice > 0, "Owner: gas price must be greater than zero.");
         maxGasPrice = newGasPrice;
         emit GasPriceUpdated(newGasPrice);
     }
 
     function updateTxCooldownTime(uint256 newCooldown) external onlyOwner {
-        require(newCooldown >= 30, "Owner: cooldown too short");
+        require(newCooldown >= 30, "Owner: cooldown too short.");
         txCooldownTime = newCooldown;
     }
 
     function setMaxTxAmount(uint256 newMaxTxAmount) external onlyOwner {
-        require(newMaxTxAmount >= _totalSupply / 1000, "Owner: maxTxAmount too low");
+        require(newMaxTxAmount >= _totalSupply / 1000, "Owner: maxTxAmount too low.");
         maxTxAmount = newMaxTxAmount;
         emit MaxTxAmountUpdated(newMaxTxAmount);
     }
 
     function setWalletMax(uint256 newWalletMax) external onlyOwner {
-        require(newWalletMax >= _totalSupply / 500, "Owner: walletMax too low");
+        require(newWalletMax >= _totalSupply / 500, "Owner: walletMax too low.");
         walletMax = newWalletMax;
         emit WalletMaxUpdated(newWalletMax);
     }
@@ -548,7 +562,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
 
     function setBuyTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
         uint256 MAX_BUY_TAX = 10; // 10%
-        require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_BUY_TAX, "Owner: buy taxes exceed limit");
+        require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_BUY_TAX, "Owner: buy taxes exceed limit.");
         buyLiquidityFee = newLiquidityFee;
         buyMarketingFee = newMarketingFee;
         buyTeamFee = newTeamFee;
@@ -558,7 +572,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
 
     function setSellTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
         uint256 MAX_SELL_TAX = 10; // 10%
-        require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_SELL_TAX, "Owner: sell taxes exceed limit");
+        require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_SELL_TAX, "Owner: sell taxes exceed limit.");
         sellLiquidityFee = newLiquidityFee;
         sellMarketingFee = newMarketingFee;
         sellTeamFee = newTeamFee;
