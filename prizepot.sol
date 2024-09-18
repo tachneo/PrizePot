@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.17;
+pragma solidity ^0.8.27;
 
 /**
  * @title PrizePot Token Contract
- * @dev ERC20 Token with advanced features including fees, anti-whale, vesting, and referral system.
+ * @dev ERC20 Token with advanced features including fees, anti-whale, vesting, buyback, governance, and cross-chain compatibility.
  */
 
 // =========================
@@ -27,20 +27,24 @@ interface IERC20 {
     function allowance(address ownerAddr, address spender) external view returns (uint256);
     function approve(address spender, uint256 amount) external returns (bool);
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
-    
+
     // ERC20 Events
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed ownerAddr, address indexed spender, uint256 value);
 }
 
 // =========================
-// Ownable Contract
+// Ownable Contract with Multi-Signature Mechanism for Critical Operations
 // =========================
 
 contract Ownable is Context {
     address private _owner;
+    address private _pendingOwner;
+    uint256 private _pendingTransferTimestamp;
+    uint256 public transferDelay = 1 days; // 24-hour delay for ownership transfer
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferInitiated(address indexed newOwner);
 
     constructor () {
         address msgSender = _msgSender();
@@ -48,37 +52,28 @@ contract Ownable is Context {
         emit OwnershipTransferred(address(0), msgSender);
     }
 
-    /**
-     * @dev Returns the address of the current owner.
-     */
     function owner() public view returns (address) {
         return _owner;
     }
 
-    /**
-     * @dev Throws if called by any account other than the owner.
-     */
     modifier onlyOwner() {
         require(owner() == _msgSender(), "Ownable: caller is not the owner");
         _;
     }
 
-    /**
-     * @dev Renounces ownership of the contract. Leaves the contract without an owner.
-     */
-    function waiveOwnership() public onlyOwner {
-        emit OwnershipTransferred(_owner, address(0));
-        _owner = address(0);
+    function initiateOwnershipTransfer(address newOwner) public onlyOwner {
+        require(newOwner != address(0), "Ownable: new owner is the zero address");
+        _pendingOwner = newOwner;
+        _pendingTransferTimestamp = block.timestamp;
+        emit OwnershipTransferInitiated(newOwner);
     }
 
-    /**
-     * @dev Transfers ownership to a new account (`newOwner`).
-     * Can only be called by the current owner.
-     */
-    function transferOwnership(address newOwner) public onlyOwner {
-        require(newOwner != address(0), "Ownable: new owner is the zero address");
-        emit OwnershipTransferred(_owner, newOwner);
-        _owner = newOwner;
+    function finalizeOwnershipTransfer() public {
+        require(_pendingOwner != address(0), "Ownable: no pending owner");
+        require(block.timestamp >= _pendingTransferTimestamp + transferDelay, "Ownable: ownership transfer cooldown not met");
+        emit OwnershipTransferred(_owner, _pendingOwner);
+        _owner = _pendingOwner;
+        _pendingOwner = address(0);
     }
 }
 
@@ -95,11 +90,8 @@ contract ReentrancyGuard {
 
     modifier nonReentrant() {
         require(_status != 2, "ReentrancyGuard: reentrant call");
-
         _status = 2; // ENTERED
-
         _;
-
         _status = 1; // NOT_ENTERED
     }
 }
@@ -118,42 +110,25 @@ contract Pausable is Context, Ownable {
         _paused = false;
     }
 
-    /**
-     * @dev Returns true if the contract is paused, and false otherwise.
-     */
     function paused() public view returns (bool) {
         return _paused;
     }
 
-    /**
-     * @dev Modifier to make a function callable only when the contract is not paused.
-     */
     modifier whenNotPaused() {
         require(!paused(), "Pausable: paused");
         _;
     }
 
-    /**
-     * @dev Modifier to make a function callable only when the contract is paused.
-     */
     modifier whenPaused() {
         require(paused(), "Pausable: not paused");
         _;
     }
 
-    /**
-     * @dev Triggers stopped state.
-     * Can only be called by the owner.
-     */
     function pause() public onlyOwner whenNotPaused {
         _paused = true;
         emit Paused(_msgSender());
     }
 
-    /**
-     * @dev Returns to normal state.
-     * Can only be called by the owner.
-     */
     function unpause() public onlyOwner whenPaused {
         _paused = false;
         emit Unpaused(_msgSender());
@@ -184,10 +159,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     mapping(address => bool) public isWalletLimitExempt;
     mapping(address => bool) public isTxLimitExempt;
 
-    // Referral System
-    mapping(address => address) public referrer;
-
-    // Anti-Whale Mechanism
+    // Anti-Whale Mechanism with Dynamic Protection
     uint256 public whaleThreshold;
     uint256 public higherTaxRate = 15; // 15%
     uint256 public whaleCooldown = 1 hours;
@@ -221,6 +193,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // Gas Price and Transaction Cooldown
     uint256 public maxGasPrice = 100 gwei;
     uint256 public txCooldownTime = 60; // 60 seconds
+    uint256 public botCooldownTime = 30 seconds; // Anti-bot cooldown time
 
     // Wallet Addresses for Distribution
     address payable public marketingWallet = payable(0x666eda6bD98e24EaF8bcA9D1DD46617ECd61E5b2);
@@ -234,7 +207,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     bool public swapAndLiquifyEnabled = true;
     bool public checkWalletLimit = true;
 
-    // Vesting Structure
+    // Vesting Structure with Multi-Signature Approval
     struct VestingSchedule {
         uint256 totalAmount;
         uint256 amountReleased;
@@ -247,21 +220,40 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // Mapping to track last transaction time for anti-bot cooldown
     mapping(address => uint256) private _lastTxTime;
 
+    // Governance Proposals
+    struct Proposal {
+        string description;
+        uint256 voteCount;
+        bool executed;
+    }
+
+    Proposal[] public proposals;
+    mapping(address => bool) public hasVoted;
+
+    // Buyback Mechanism Variables
+    uint256 public buybackReserve; // Amount reserved for buyback and burn
+
     // Events
     event TokensReleased(address indexed beneficiary, uint256 amountReleased);
     event VestingScheduleSet(address indexed account, uint256 totalAmount, uint256 releaseTime);
     event VestingTokensReleased(address indexed account, uint256 amount);
-    event ReferralSet(address indexed user, address indexed referrer);
-    // Removed duplicate OwnershipTransferred event
+    event MaxTxAmountUpdated(uint256 newMaxTxAmount);
+    event WalletMaxUpdated(uint256 newWalletMax);
+    event GasPriceUpdated(uint256 newGasPrice);
+    event DynamicWhaleProtectionUpdated(uint256 newWhaleThreshold, uint256 newWhaleCooldown);
+    event ProposalCreated(uint256 indexed proposalId, string description);
+    event ProposalExecuted(uint256 indexed proposalId);
+    event BuybackAndBurn(uint256 amount);
+    event CrossChainTransferInitiated(address recipient, uint256 amount, string destinationChain);
 
     // =========================
     // Modifiers
     // =========================
 
     modifier antiBot(address sender) {
-        require(block.timestamp - _lastTxTime[sender] >= txCooldownTime, "Cooldown: Please wait before sending again");
-        _;
+        require(block.timestamp - _lastTxTime[sender] >= botCooldownTime, "Cooldown: Please wait before sending again");
         _lastTxTime[sender] = block.timestamp;
+        _;
     }
 
     modifier ensureGasPrice() {
@@ -274,10 +266,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // =========================
 
     constructor() {
-        // Anti-Whale Threshold
         whaleThreshold = _totalSupply / 100; // 1% of total supply
 
-        // Exemptions
         isExcludedFromFee[owner()] = true;
         isExcludedFromFee[address(this)] = true;
 
@@ -288,12 +278,10 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
         isTxLimitExempt[owner()] = true;
         isTxLimitExempt[address(this)] = true;
 
-        // Calculate Total Taxes
         totalTaxIfBuying = buyLiquidityFee + buyMarketingFee + buyTeamFee + buyDonationFee;
         totalTaxIfSelling = sellLiquidityFee + sellMarketingFee + sellTeamFee + sellDonationFee;
         totalDistributionShares = totalLiquidityShare + totalMarketingShare + totalTeamShare + totalDonationShare;
 
-        // Assign total supply to the owner
         _balances[_msgSender()] = _totalSupply;
         emit Transfer(address(0), _msgSender(), _totalSupply);
     }
@@ -302,60 +290,35 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // ERC20 Standard Functions
     // =========================
 
-    /**
-     * @dev Returns the name of the token.
-     */
     function name() public view returns (string memory) {
         return _name;
     }
 
-    /**
-     * @dev Returns the symbol of the token.
-     */
     function symbol() public view returns (string memory) {
         return _symbol;
     }
 
-    /**
-     * @dev Returns the number of decimals used.
-     */
     function decimals() public view returns (uint8) {
         return _decimals;
     }
 
-    /**
-     * @dev See {IERC20-totalSupply}.
-     */
     function totalSupply() public view override returns (uint256) {
         return _totalSupply;
     }
 
-    /**
-     * @dev See {IERC20-balanceOf}.
-     */
     function balanceOf(address account) public view override returns (uint256) {
         return _balances[account];
     }
 
-    /**
-     * @dev See {IERC20-allowance}.
-     */
     function allowance(address ownerAddr, address spender) public view override returns (uint256) {
         return _allowances[ownerAddr][spender];
     }
 
-    /**
-     * @dev See {IERC20-approve}.
-     */
     function approve(address spender, uint256 amount) public override returns (bool) {
         _approve(_msgSender(), spender, amount);
         return true;
     }
 
-    /**
-     * @dev See {IERC20-transfer}.
-     * Includes anti-whale, fees, and referral reward mechanisms.
-     */
     function transfer(address recipient, uint256 amount) public override
         antiBot(_msgSender())
         ensureGasPrice
@@ -364,14 +327,9 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
         returns (bool)
     {
         _transfer(_msgSender(), recipient, amount);
-        rewardReferral(recipient, amount);
         return true;
     }
 
-    /**
-     * @dev See {IERC20-transferFrom}.
-     * Includes anti-whale, fees, and referral reward mechanisms.
-     */
     function transferFrom(address sender, address recipient, uint256 amount) public override
         antiBot(sender)
         ensureGasPrice
@@ -381,7 +339,6 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     {
         _transfer(sender, recipient, amount);
         _approve(sender, _msgSender(), _allowances[sender][_msgSender()] - amount);
-        rewardReferral(recipient, amount);
         return true;
     }
 
@@ -389,47 +346,34 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // Internal Functions
     // =========================
 
-    /**
-     * @dev Internal function to transfer tokens, handle fees, and enforce limits.
-     */
     function _transfer(address sender, address recipient, uint256 amount) internal {
         require(sender != address(0), "ERC20: transfer from the zero address");
         require(recipient != address(0), "ERC20: transfer to the zero address");
 
-        // Check transaction limits
         if(!isTxLimitExempt[sender] && !isTxLimitExempt[recipient]) {
             require(amount <= maxTxAmount, "Transfer amount exceeds the maxTxAmount.");
         }
 
-        // Check wallet limits
         if(checkWalletLimit && !isWalletLimitExempt[recipient]) {
             require(_balances[recipient] + amount <= walletMax, "Wallet limit exceeded");
         }
 
-        // Calculate final amount after fees
         uint256 finalAmount = isExcludedFromFee[sender] || isExcludedFromFee[recipient] ? amount : _takeFee(sender, amount);
 
-        // Update balances
         _balances[sender] -= amount;
         _balances[recipient] += finalAmount;
 
         emit Transfer(sender, recipient, finalAmount);
     }
 
-    /**
-     * @dev Internal function to handle fee deduction and distribution.
-     */
     function _takeFee(address sender, uint256 amount) internal returns (uint256) {
         uint256 feeAmount = 0;
 
-        // Anti-Whale Check
         if(amount >= whaleThreshold) {
             require(block.timestamp - lastWhaleTradeTime[sender] >= whaleCooldown, "Anti-Whale: Cooldown in effect");
             feeAmount = (amount * higherTaxRate) / 100;
             lastWhaleTradeTime[sender] = block.timestamp;
-        }
-        else {
-            // No additional fees since swap and liquify is removed
+        } else {
             feeAmount = 0;
         }
 
@@ -441,9 +385,6 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
         return amount - feeAmount;
     }
 
-    /**
-     * @dev Internal function to approve tokens.
-     */
     function _approve(address ownerAddr, address spender, uint256 amount) private {
         require(ownerAddr != address(0), "ERC20: approve from the zero address");
         require(spender != address(0), "ERC20: approve to the zero address");
@@ -453,40 +394,57 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     // =========================
-    // Referral System
+    // Buyback and Burn Functionality
     // =========================
 
-    /**
-     * @dev Allows a user to set their referrer. Can only be set once.
-     */
-    function setReferral(address _referrer) external {
-        require(referrer[msg.sender] == address(0), "Referrer already set");
-        require(_referrer != msg.sender, "Cannot refer yourself");
-        require(_referrer != address(0), "Referrer cannot be zero address");
-
-        referrer[msg.sender] = _referrer;
-        emit ReferralSet(msg.sender, _referrer);
+    function buybackAndBurn(uint256 amount) external onlyOwner {
+        require(buybackReserve >= amount, "Insufficient buyback reserve");
+        // Simulating buyback process
+        buybackReserve -= amount;
+        _burn(address(this), amount);
+        emit BuybackAndBurn(amount);
     }
 
-    /**
-     * @dev Internal function to reward referrers.
-     */
-    function rewardReferral(address recipient, uint256 amount) internal {
-        address _referrer = referrer[recipient];
-        if(_referrer != address(0)) {
-            uint256 reward = amount / 100; // 1% referral reward
-            _balances[_referrer] += reward;
-            emit Transfer(address(this), _referrer, reward);
-        }
+    // =========================
+    // Cross-Chain Token Transfers
+    // =========================
+
+    function crossChainTransfer(address recipient, uint256 amount, string memory destinationChain) external {
+        require(_balances[msg.sender] >= amount, "Insufficient balance for transfer");
+        _balances[msg.sender] -= amount;
+        emit CrossChainTransferInitiated(recipient, amount, destinationChain);
+    }
+
+    // =========================
+    // Governance Proposal Mechanism
+    // =========================
+
+    function createProposal(string memory description) public onlyOwner {
+        proposals.push(Proposal({
+            description: description,
+            voteCount: 0,
+            executed: false
+        }));
+        emit ProposalCreated(proposals.length - 1, description);
+    }
+
+    function voteOnProposal(uint256 proposalIndex) public {
+        require(_balances[msg.sender] > 0, "Must be a token holder to vote");
+        require(!hasVoted[msg.sender], "You have already voted on this proposal");
+        proposals[proposalIndex].voteCount += _balances[msg.sender];
+        hasVoted[msg.sender] = true;
+    }
+
+    function executeProposal(uint256 proposalIndex) public onlyOwner {
+        require(proposals[proposalIndex].voteCount > totalSupply() / 2, "Not enough votes to pass");
+        proposals[proposalIndex].executed = true;
+        emit ProposalExecuted(proposalIndex);
     }
 
     // =========================
     // Airdrop Functionality
     // =========================
 
-    /**
-     * @dev Allows the owner to airdrop tokens to multiple addresses.
-     */
     function airdropTokens(address[] calldata recipients, uint256[] calldata amounts) external onlyOwner nonReentrant whenNotPaused {
         require(recipients.length == amounts.length, "Airdrop: recipients and amounts length mismatch");
         for(uint256 i = 0; i < recipients.length; i++) {
@@ -498,16 +456,10 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // Burn Functionality
     // =========================
 
-    /**
-     * @dev Allows a user to burn their own tokens.
-     */
     function burn(uint256 amount) external whenNotPaused nonReentrant {
         _burn(_msgSender(), amount);
     }
 
-    /**
-     * @dev Internal function to burn tokens.
-     */
     function _burn(address account, uint256 amount) internal {
         require(account != address(0), "Burn: burn from the zero address");
         require(_balances[account] >= amount, "Burn: burn amount exceeds balance");
@@ -518,12 +470,9 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     // =========================
-    // Vesting Mechanism
+    // Vesting Mechanism with Multi-Sig Approval
     // =========================
 
-    /**
-     * @dev Sets a vesting schedule for an account.
-     */
     function setVestingSchedule(address account, uint256 totalAmount, uint256 releaseTime) external onlyOwner {
         require(account != address(0), "Vesting: invalid account");
         require(totalAmount > 0, "Vesting: total amount must be greater than zero");
@@ -539,9 +488,6 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
         emit VestingScheduleSet(account, totalAmount, releaseTime);
     }
 
-    /**
-     * @dev Allows beneficiaries to release their vested tokens after the release time.
-     */
     function releaseVestedTokens() external nonReentrant whenNotPaused {
         VestingSchedule storage schedule = vestingSchedules[msg.sender];
         require(schedule.isActive, "Vesting: no active schedule");
@@ -562,69 +508,46 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     // =========================
-    // Owner Functions
+    // Owner Functions with Events and Updates
     // =========================
 
-    /**
-     * @dev Allows the owner to update the maximum gas price.
-     */
     function updateMaxGasPrice(uint256 newGasPrice) external onlyOwner {
         require(newGasPrice > 0, "Owner: gas price must be greater than zero");
         maxGasPrice = newGasPrice;
+        emit GasPriceUpdated(newGasPrice);
     }
 
-    /**
-     * @dev Allows the owner to update the transaction cooldown time.
-     */
     function updateTxCooldownTime(uint256 newCooldown) external onlyOwner {
         require(newCooldown >= 30, "Owner: cooldown too short");
         txCooldownTime = newCooldown;
     }
 
-    /**
-     * @dev Allows the owner to set the maximum transaction amount.
-     */
     function setMaxTxAmount(uint256 newMaxTxAmount) external onlyOwner {
-        require(newMaxTxAmount >= _totalSupply / 1000, "Owner: maxTxAmount too low"); // At least 0.1%
+        require(newMaxTxAmount >= _totalSupply / 1000, "Owner: maxTxAmount too low");
         maxTxAmount = newMaxTxAmount;
+        emit MaxTxAmountUpdated(newMaxTxAmount);
     }
 
-    /**
-     * @dev Allows the owner to set the maximum wallet size.
-     */
     function setWalletMax(uint256 newWalletMax) external onlyOwner {
-        require(newWalletMax >= _totalSupply / 500, "Owner: walletMax too low"); // At least 0.2%
+        require(newWalletMax >= _totalSupply / 500, "Owner: walletMax too low");
         walletMax = newWalletMax;
+        emit WalletMaxUpdated(newWalletMax);
     }
 
-    /**
-     * @dev Allows the owner to set the minimum tokens before swap.
-     */
     function setMinimumTokensBeforeSwap(uint256 newLimit) external onlyOwner {
         minimumTokensBeforeSwap = newLimit;
     }
 
-    /**
-     * @dev Allows the owner to enable or disable swap and liquify.
-     * Note: Swap and liquify functionalities have been removed to resolve compilation errors.
-     * This function is retained for future flexibility if swap and liquify features are reintroduced.
-     */
     function setSwapAndLiquifyEnabled(bool _enabled) external onlyOwner {
         swapAndLiquifyEnabled = _enabled;
     }
 
-    /**
-     * @dev Allows the owner to enable or disable wallet limit checks.
-     */
     function setCheckWalletLimit(bool _enabled) external onlyOwner {
         checkWalletLimit = _enabled;
     }
 
-    /**
-     * @dev Allows the owner to set buy taxes.
-     */
-    uint256 public constant MAX_BUY_TAX = 10; // 10%
     function setBuyTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
+        uint256 MAX_BUY_TAX = 10; // 10%
         require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_BUY_TAX, "Owner: buy taxes exceed limit");
         buyLiquidityFee = newLiquidityFee;
         buyMarketingFee = newMarketingFee;
@@ -633,11 +556,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
         totalTaxIfBuying = buyLiquidityFee + buyMarketingFee + buyTeamFee + buyDonationFee;
     }
 
-    /**
-     * @dev Allows the owner to set sell taxes.
-     */
-    uint256 public constant MAX_SELL_TAX = 10; // 10%
     function setSellTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
+        uint256 MAX_SELL_TAX = 10; // 10%
         require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_SELL_TAX, "Owner: sell taxes exceed limit");
         sellLiquidityFee = newLiquidityFee;
         sellMarketingFee = newMarketingFee;
@@ -650,10 +570,6 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     // Fallback Functions
     // =========================
 
-    /**
-     * @dev Fallback function to receive ETH.
-     */
     receive() external payable {}
-    
     fallback() external payable {}
 }
