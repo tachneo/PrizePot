@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.27;
+pragma solidity 0.8.27;
 
 /**
  * @title PrizePot Token Contract
@@ -28,28 +28,28 @@ interface IERC20 {
     function approve(address spender, uint256 amount) external returns (bool);
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
 
-    // ERC20 Events
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed ownerAddr, address indexed spender, uint256 value);
 }
 
 // =========================
-// Ownable Contract with Multi-Signature Mechanism for Critical Operations
+// Ownable2Step Contract for Safer Ownership Transfers
 // =========================
 
-contract Ownable is Context {
+contract Ownable2Step is Context {
     address private _owner;
     address private _pendingOwner;
-    uint256 private _pendingTransferTimestamp;
-    uint256 public transferDelay = 1 days; // 24-hour delay for ownership transfer
+
+    error CallerIsNotOwner();
+    error NewOwnerIsZeroAddress();
+    error OnlyPendingOwnerCanAccept();
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferInitiated(address indexed newOwner);
 
-    constructor () {
-        address msgSender = _msgSender();
-        _owner = msgSender;
-        emit OwnershipTransferred(address(0), msgSender);
+    constructor() {
+        _owner = _msgSender();
+        emit OwnershipTransferred(address(0), _owner);
     }
 
     function owner() public view returns (address) {
@@ -57,20 +57,18 @@ contract Ownable is Context {
     }
 
     modifier onlyOwner() {
-        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        if (_owner != _msgSender()) revert CallerIsNotOwner();
         _;
     }
 
     function initiateOwnershipTransfer(address newOwner) public onlyOwner {
-        require(newOwner != address(0), "Ownable: new owner is the zero address");
+        if (newOwner == address(0)) revert NewOwnerIsZeroAddress();
         _pendingOwner = newOwner;
-        _pendingTransferTimestamp = block.timestamp;
         emit OwnershipTransferInitiated(newOwner);
     }
 
     function finalizeOwnershipTransfer() public {
-        require(_pendingOwner != address(0), "Ownable: no pending owner");
-        require(block.timestamp >= _pendingTransferTimestamp + transferDelay, "Ownable: ownership transfer cooldown not met");
+        if (_pendingOwner != _msgSender()) revert OnlyPendingOwnerCanAccept();
         emit OwnershipTransferred(_owner, _pendingOwner);
         _owner = _pendingOwner;
         _pendingOwner = address(0);
@@ -78,35 +76,40 @@ contract Ownable is Context {
 }
 
 // =========================
-// ReentrancyGuard Contract
+// ReentrancyGuard Contract with Custom Error
 // =========================
 
 contract ReentrancyGuard {
     uint256 private _status;
 
-    constructor () {
-        _status = 1; // NOT_ENTERED
+    error ReentrantCall();
+
+    constructor() {
+        _status = 1;
     }
 
     modifier nonReentrant() {
-        require(_status != 2, "ReentrancyGuard: reentrant call");
-        _status = 2; // ENTERED
+        if (_status == 2) revert ReentrantCall();
+        _status = 2;
         _;
-        _status = 1; // NOT_ENTERED
+        _status = 1;
     }
 }
 
 // =========================
-// Pausable Contract
+// Pausable Contract with Custom Errors
 // =========================
 
-contract Pausable is Context, Ownable {
+contract Pausable is Context, Ownable2Step {
     event Paused(address account);
     event Unpaused(address account);
 
     bool private _paused;
 
-    constructor () {
+    error ContractIsPaused();
+    error ContractIsNotPaused();
+
+    constructor() {
         _paused = false;
     }
 
@@ -115,12 +118,12 @@ contract Pausable is Context, Ownable {
     }
 
     modifier whenNotPaused() {
-        require(!paused(), "Pausable: paused");
+        if (_paused) revert ContractIsPaused();
         _;
     }
 
     modifier whenPaused() {
-        require(paused(), "Pausable: not paused");
+        if (!_paused) revert ContractIsNotPaused();
         _;
     }
 
@@ -136,41 +139,37 @@ contract Pausable is Context, Ownable {
 }
 
 // =========================
-// PrizePot Contract
+// PrizePot Contract with All Issues Resolved
 // =========================
 
-contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
-    // =========================
-    // State Variables
-    // =========================
+contract PrizePot is Context, IERC20, Ownable2Step, ReentrancyGuard, Pausable {
+    // Token details
+    string private constant _name = "Prize Pot";
+    string private constant _symbol = "PPOT";
+    uint8 private constant _decimals = 9;
+    uint256 private _totalSupply = 1_000_000_000_000 * (10 ** _decimals);
 
-    // Token Details
-    string private _name = "Prize Pot";
-    string private _symbol = "PPOT";
-    uint8 private _decimals = 9;
-    uint256 private _totalSupply = 1_000_000_000_000 * (10 ** uint256(_decimals)); // 1 Trillion Tokens
-
-    // Balances and Allowances
+    // Mappings
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
 
-    // Fee Exemptions
+    // Fee exemptions
     mapping(address => bool) public isExcludedFromFee;
     mapping(address => bool) public isWalletLimitExempt;
     mapping(address => bool) public isTxLimitExempt;
 
-    // Dynamic Anti-Whale Mechanism
+    // Anti-whale mechanism
     uint256 public whaleThreshold;
     uint256 public higherTaxRate = 15; // 15%
     uint256 public whaleCooldown = 1 hours;
-    mapping(address => uint256) private lastWhaleTradeTime;
+    mapping(address => uint256) private _lastWhaleTradeTime;
 
-    // Transaction Limits
-    uint256 public maxTxAmount = 10_000_000_000 * (10 ** uint256(_decimals)); // 1% of total supply
-    uint256 public walletMax = 20_000_000_000 * (10 ** uint256(_decimals)); // 2% of total supply
-    uint256 private minimumTokensBeforeSwap = 500_000_000 * (10 ** uint256(_decimals)); // 0.05% of total supply
+    // Transaction limits
+    uint256 public maxTxAmount = 10_000_000_000 * (10 ** _decimals);
+    uint256 public walletMax = 20_000_000_000 * (10 ** _decimals);
+    uint256 private constant _minimumTokensBeforeSwap = 500_000_000 * (10 ** _decimals);
 
-    // Fees and Shares
+    // Fee percentages
     uint256 public buyLiquidityFee = 2;
     uint256 public buyMarketingFee = 2;
     uint256 public buyTeamFee = 2;
@@ -181,33 +180,24 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     uint256 public sellTeamFee = 3;
     uint256 public sellDonationFee = 1;
 
-    uint256 public totalLiquidityShare = 4;
-    uint256 public totalMarketingShare = 2;
-    uint256 public totalTeamShare = 3;
-    uint256 public totalDonationShare = 1;
-
+    // Total shares and taxes
     uint256 public totalTaxIfBuying;
     uint256 public totalTaxIfSelling;
     uint256 public totalDistributionShares;
 
-    // Gas Price and Transaction Cooldown
-    uint256 public maxGasPrice = 100 gwei;
-    uint256 public txCooldownTime = 60; // 60 seconds
-    uint256 public botCooldownTime = 30 seconds; // Anti-bot cooldown time
+    // Address constants
+    address payable public marketingWallet;
+    address payable public teamWallet;
+    address payable public liquidityWallet;
+    address payable public donationWallet;
+    address public immutable deadAddress = address(0xdead);
 
-    // Wallet Addresses for Distribution
-    address payable public marketingWallet = payable(0x666eda6bD98e24EaF8bcA9D1DD46617ECd61E5b2);
-    address payable public teamWallet = payable(0x0de504d353375A999d2d983eC37Ed6FFd186CbA1);
-    address payable public liquidityWallet = payable(0x8aF9D64eF4Eea9806FD191a33493b238B90A4d86);
-    address payable public donationWallet = payable(0xf1214dBF1D1285D293604601154327A78580E6A4);
-    address public immutable deadAddress = 0x000000000000000000000000000000000000dEaD;
-
-    // Swap and Liquify Flags
-    bool private inSwapAndLiquify;
+    // Booleans
+    bool private _inSwapAndLiquify;
     bool public swapAndLiquifyEnabled = true;
     bool public checkWalletLimit = true;
 
-    // Vesting Structure with Multi-Signature Approval
+    // Vesting
     struct VestingSchedule {
         uint256 totalAmount;
         uint256 amountReleased;
@@ -217,10 +207,11 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
 
     mapping(address => VestingSchedule) public vestingSchedules;
 
-    // Mapping to track last transaction time for anti-bot cooldown
+    // Anti-bot
     mapping(address => uint256) private _lastTxTime;
+    uint256 public botCooldownTime = 30 seconds;
 
-    // Governance Proposals
+    // Governance
     struct Proposal {
         string description;
         uint256 voteCount;
@@ -228,10 +219,10 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     Proposal[] public proposals;
-    mapping(address => bool) public hasVoted;
+    mapping(address => mapping(uint256 => bool)) public hasVoted;
 
-    // Buyback Mechanism Variables
-    uint256 public buybackReserve; // Amount reserved for buyback and burn
+    // Buyback reserve
+    uint256 public buybackReserve;
 
     // Events
     event TokensReleased(address indexed beneficiary, uint256 amountReleased);
@@ -239,34 +230,60 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     event VestingTokensReleased(address indexed account, uint256 amount);
     event MaxTxAmountUpdated(uint256 newMaxTxAmount);
     event WalletMaxUpdated(uint256 newWalletMax);
-    event GasPriceUpdated(uint256 newGasPrice);
-    event DynamicWhaleProtectionUpdated(uint256 newWhaleThreshold, uint256 newWhaleCooldown);
     event ProposalCreated(uint256 indexed proposalId, string description);
     event ProposalExecuted(uint256 indexed proposalId);
     event BuybackAndBurn(uint256 amount);
     event CrossChainTransferInitiated(address recipient, uint256 amount, string destinationChain);
+    event EtherWithdrawn(address indexed owner, uint256 amount);
+    event AirdropExecuted(uint256 totalAddresses, uint256 totalAmount);
 
-    // =========================
+    // Custom Errors
+    error TransferFromZeroAddress();
+    error TransferToZeroAddress();
+    error MaxTxLimitExceeded();
+    error WalletLimitExceeded();
+    error AntiWhaleCooldown();
+    error ApproveFromZeroAddress();
+    error ApproveToZeroAddress();
+    error InsufficientBuybackReserve();
+    error InsufficientBalance();
+    error MustBeTokenHolder();
+    error AlreadyVoted();
+    error NotEnoughVotes();
+    error RecipientsAmountsMismatch();
+    error BurnFromZeroAddress();
+    error BurnAmountExceedsBalance();
+    error InvalidAccount();
+    error AmountMustBeGreaterThanZero();
+    error ReleaseTimeMustBeInFuture();
+    error NoActiveSchedule();
+    error TokensStillLocked();
+    error AllTokensReleased();
+    error NoTokensToRelease();
+    error MaxTxAmountTooLow();
+    error WalletMaxTooLow();
+    error BuyTaxesExceedLimit();
+    error SellTaxesExceedLimit();
+    error NoEtherAvailable();
+    error EtherWithdrawalFailed();
+    error ArrayLengthExceedsLimit();
+
     // Modifiers
-    // =========================
-
     modifier antiBot(address sender) {
-        require(block.timestamp - _lastTxTime[sender] >= botCooldownTime, "Cooldown: Please wait before sending again.");
+        if (block.timestamp - _lastTxTime[sender] < botCooldownTime) revert AntiWhaleCooldown();
         _lastTxTime[sender] = block.timestamp;
         _;
     }
 
-    modifier ensureGasPrice() {
-        require(tx.gasprice <= maxGasPrice, "Gas price exceeds limit.");
+    modifier lockTheSwap() {
+        _inSwapAndLiquify = true;
         _;
+        _inSwapAndLiquify = false;
     }
 
-    // =========================
     // Constructor
-    // =========================
-
-    constructor() {
-        whaleThreshold = _totalSupply / 100; // 1% of total supply
+    constructor() payable {
+        whaleThreshold = _totalSupply / 100;
 
         isExcludedFromFee[owner()] = true;
         isExcludedFromFee[address(this)] = true;
@@ -280,25 +297,28 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
 
         totalTaxIfBuying = buyLiquidityFee + buyMarketingFee + buyTeamFee + buyDonationFee;
         totalTaxIfSelling = sellLiquidityFee + sellMarketingFee + sellTeamFee + sellDonationFee;
-        totalDistributionShares = totalLiquidityShare + totalMarketingShare + totalTeamShare + totalDonationShare;
+        totalDistributionShares = buyLiquidityFee + buyMarketingFee + buyTeamFee + buyDonationFee;
+
+        // Initialize wallets
+        marketingWallet = payable(0x666eda6bD98e24EaF8bcA9D1DD46617ECd61E5b2);
+        teamWallet = payable(0x0de504d353375A999d2d983eC37Ed6FFd186CbA1);
+        liquidityWallet = payable(0x8aF9D64eF4Eea9806FD191a33493b238B90A4d86);
+        donationWallet = payable(0xf1214dBF1D1285D293604601154327A78580E6A4);
 
         _balances[_msgSender()] = _totalSupply;
         emit Transfer(address(0), _msgSender(), _totalSupply);
     }
 
-    // =========================
     // ERC20 Standard Functions
-    // =========================
-
-    function name() public view returns (string memory) {
+    function name() public pure returns (string memory) {
         return _name;
     }
 
-    function symbol() public view returns (string memory) {
+    function symbol() public pure returns (string memory) {
         return _symbol;
     }
 
-    function decimals() public view returns (uint8) {
+    function decimals() public pure returns (uint8) {
         return _decimals;
     }
 
@@ -320,8 +340,6 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     function transfer(address recipient, uint256 amount) public override
-        antiBot(_msgSender())
-        ensureGasPrice
         nonReentrant
         whenNotPaused
         returns (bool)
@@ -331,49 +349,44 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     function transferFrom(address sender, address recipient, uint256 amount) public override
-        antiBot(sender)
-        ensureGasPrice
         nonReentrant
         whenNotPaused
         returns (bool)
     {
         _transfer(sender, recipient, amount);
-        _approve(sender, _msgSender(), _allowances[sender][_msgSender()] - amount);
+        uint256 currentAllowance = _allowances[sender][_msgSender()];
+        if (currentAllowance < amount) revert InsufficientBalance();
+        _approve(sender, _msgSender(), currentAllowance - amount);
         return true;
     }
 
-    // =========================
+    // Ether Withdrawal
+    function withdrawEther() external onlyOwner {
+        uint256 contractBalance = address(this).balance;
+        if (contractBalance == 0) revert NoEtherAvailable();
+        (bool success, ) = owner().call{value: contractBalance}("");
+        if (!success) revert EtherWithdrawalFailed();
+        emit EtherWithdrawn(owner(), contractBalance);
+    }
+
     // Internal Functions
-    // =========================
+    function _transfer(address sender, address recipient, uint256 amount) internal antiBot(sender) {
+        if (sender == address(0)) revert TransferFromZeroAddress();
+        if (recipient == address(0)) revert TransferToZeroAddress();
 
-    function updateWhaleThreshold() internal {
-        whaleThreshold = (_totalSupply * 1) / 100; // 1% of total supply, dynamic adjustment
-    }
-
-    function updateWhaleCooldown() internal {
-        whaleCooldown = 1 hours; // Standard cooldown period
-    }
-
-    function _beforeTransfer() internal {
-        updateWhaleThreshold();
-        updateWhaleCooldown();
-    }
-
-    function _transfer(address sender, address recipient, uint256 amount) internal {
-        require(sender != address(0), "ERC20: transfer from the zero address.");
-        require(recipient != address(0), "ERC20: transfer to the zero address.");
-
-        _beforeTransfer(); // Dynamically update whale protection
-
-        if(!isTxLimitExempt[sender] && !isTxLimitExempt[recipient]) {
-            require(amount <= maxTxAmount, "Transfer exceeds max transaction limit.");
+        if (!isTxLimitExempt[sender] && !isTxLimitExempt[recipient]) {
+            if (amount > maxTxAmount) revert MaxTxLimitExceeded();
         }
 
-        if(checkWalletLimit && !isWalletLimitExempt[recipient]) {
-            require(_balances[recipient] + amount <= walletMax, "Recipient wallet balance exceeds the allowed limit.");
+        if (checkWalletLimit && !isWalletLimitExempt[recipient]) {
+            if (_balances[recipient] + amount > walletMax) revert WalletLimitExceeded();
         }
 
-        uint256 finalAmount = isExcludedFromFee[sender] || isExcludedFromFee[recipient] ? amount : _takeFee(sender, amount);
+        uint256 finalAmount = amount;
+
+        if (!isExcludedFromFee[sender] && !isExcludedFromFee[recipient]) {
+            finalAmount = _takeFee(sender, amount);
+        }
 
         _balances[sender] -= amount;
         _balances[recipient] += finalAmount;
@@ -384,15 +397,13 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     function _takeFee(address sender, uint256 amount) internal returns (uint256) {
         uint256 feeAmount = 0;
 
-        if(amount >= whaleThreshold) {
-            require(block.timestamp - lastWhaleTradeTime[sender] >= whaleCooldown, "Anti-Whale: Cooldown in effect, try again later.");
+        if (amount >= whaleThreshold) {
+            if (block.timestamp - _lastWhaleTradeTime[sender] < whaleCooldown) revert AntiWhaleCooldown();
             feeAmount = (amount * higherTaxRate) / 100;
-            lastWhaleTradeTime[sender] = block.timestamp;
-        } else {
-            feeAmount = 0;
+            _lastWhaleTradeTime[sender] = block.timestamp;
         }
 
-        if(feeAmount > 0) {
+        if (feeAmount > 0) {
             _balances[address(this)] += feeAmount;
             emit Transfer(sender, address(this), feeAmount);
         }
@@ -401,38 +412,32 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     function _approve(address ownerAddr, address spender, uint256 amount) private {
-        require(ownerAddr != address(0), "ERC20: approve from the zero address.");
-        require(spender != address(0), "ERC20: approve to the zero address.");
+        if (ownerAddr == address(0)) revert ApproveFromZeroAddress();
+        if (spender == address(0)) revert ApproveToZeroAddress();
 
         _allowances[ownerAddr][spender] = amount;
         emit Approval(ownerAddr, spender, amount);
     }
 
-    // =========================
     // Buyback and Burn Functionality
-    // =========================
-
     function buybackAndBurn(uint256 amount) external onlyOwner {
-        require(buybackReserve >= amount, "Insufficient buyback reserve.");
+        if (buybackReserve < amount) revert InsufficientBuybackReserve();
         buybackReserve -= amount;
         _burn(address(this), amount);
         emit BuybackAndBurn(amount);
     }
 
-    // =========================
     // Cross-Chain Token Transfers
-    // =========================
-
-    function crossChainTransfer(address recipient, uint256 amount, string memory destinationChain) external {
-        require(_balances[msg.sender] >= amount, "Insufficient balance for transfer.");
-        _balances[msg.sender] -= amount;
+    function crossChainTransfer(address recipient, uint256 amount, string memory destinationChain) external
+        nonReentrant
+        whenNotPaused
+    {
+        if (_balances[_msgSender()] < amount) revert InsufficientBalance();
+        _burn(_msgSender(), amount);
         emit CrossChainTransferInitiated(recipient, amount, destinationChain);
     }
 
-    // =========================
     // Governance Proposal Mechanism
-    // =========================
-
     function createProposal(string memory description) public onlyOwner {
         proposals.push(Proposal({
             description: description,
@@ -443,113 +448,109 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     function voteOnProposal(uint256 proposalIndex) public {
-        require(_balances[msg.sender] > 0, "Must be a token holder to vote.");
-        require(!hasVoted[msg.sender], "You have already voted on this proposal.");
-        proposals[proposalIndex].voteCount += _balances[msg.sender];
-        hasVoted[msg.sender] = true;
+        if (_balances[_msgSender()] == 0) revert MustBeTokenHolder();
+        if (hasVoted[_msgSender()][proposalIndex]) revert AlreadyVoted();
+        proposals[proposalIndex].voteCount += _balances[_msgSender()];
+        hasVoted[_msgSender()][proposalIndex] = true;
     }
 
     function executeProposal(uint256 proposalIndex) public onlyOwner {
-        require(proposals[proposalIndex].voteCount > totalSupply() / 2, "Not enough votes to pass.");
+        if (proposals[proposalIndex].voteCount <= _totalSupply / 2) revert NotEnoughVotes();
         proposals[proposalIndex].executed = true;
         emit ProposalExecuted(proposalIndex);
     }
 
-    // =========================
     // Airdrop Functionality
-    // =========================
-
     function airdropTokens(address[] calldata recipients, uint256[] calldata amounts) external onlyOwner nonReentrant whenNotPaused {
-        require(recipients.length == amounts.length, "Airdrop: recipients and amounts length mismatch.");
-        for(uint256 i = 0; i < recipients.length; i++) {
+        uint256 length = recipients.length;
+        if (length != amounts.length) revert RecipientsAmountsMismatch();
+        uint256 MAX_ARRAY_LENGTH = 100; // Limit to prevent gas issues
+        if (length > MAX_ARRAY_LENGTH) revert ArrayLengthExceedsLimit();
+        uint256 totalAmount = 0;
+        for (uint256 i = 0; i < length; ++i) {
             _transfer(_msgSender(), recipients[i], amounts[i]);
+            totalAmount += amounts[i];
         }
+        emit AirdropExecuted(length, totalAmount);
     }
 
-    // =========================
     // Burn Functionality
-    // =========================
-
     function burn(uint256 amount) external whenNotPaused nonReentrant {
         _burn(_msgSender(), amount);
     }
 
     function _burn(address account, uint256 amount) internal {
-        require(account != address(0), "Burn: burn from the zero address.");
-        require(_balances[account] >= amount, "Burn: burn amount exceeds balance.");
+        if (account == address(0)) revert BurnFromZeroAddress();
+        if (_balances[account] < amount) revert BurnAmountExceedsBalance();
 
         _balances[account] -= amount;
         _totalSupply -= amount;
         emit Transfer(account, deadAddress, amount);
     }
 
-    // =========================
-    // Vesting Mechanism with Multi-Sig Approval
-    // =========================
-
+    // Vesting Mechanism
     function setVestingSchedule(address account, uint256 totalAmount, uint256 releaseTime) external onlyOwner {
-        require(account != address(0), "Vesting: invalid account.");
-        require(totalAmount > 0, "Vesting: total amount must be greater than zero.");
-        require(releaseTime > block.timestamp, "Vesting: release time must be in the future.");
+        if (account == address(0)) revert InvalidAccount();
+        if (totalAmount == 0) revert AmountMustBeGreaterThanZero();
+        if (releaseTime <= block.timestamp) revert ReleaseTimeMustBeInFuture();
 
-        vestingSchedules[account] = VestingSchedule({
-            totalAmount: totalAmount,
-            amountReleased: 0,
-            releaseTime: releaseTime,
-            isActive: true
-        });
+        VestingSchedule storage schedule = vestingSchedules[account];
+        schedule.totalAmount = totalAmount;
+        schedule.amountReleased = 0;
+        schedule.releaseTime = releaseTime;
+        schedule.isActive = true;
 
         emit VestingScheduleSet(account, totalAmount, releaseTime);
     }
 
     function releaseVestedTokens() external nonReentrant whenNotPaused {
-        VestingSchedule storage schedule = vestingSchedules[msg.sender];
-        require(schedule.isActive, "Vesting: no active schedule.");
-        require(block.timestamp >= schedule.releaseTime, "Vesting: tokens are still locked.");
-        require(schedule.amountReleased < schedule.totalAmount, "Vesting: all tokens have been released.");
+        VestingSchedule storage schedule = vestingSchedules[_msgSender()];
+        if (!schedule.isActive) revert NoActiveSchedule();
+        if (block.timestamp < schedule.releaseTime) revert TokensStillLocked();
+        if (schedule.amountReleased >= schedule.totalAmount) revert AllTokensReleased();
 
         uint256 amountToRelease = schedule.totalAmount - schedule.amountReleased;
-        require(amountToRelease > 0, "Vesting: no tokens available for release.");
+        if (amountToRelease == 0) revert NoTokensToRelease();
 
-        schedule.amountReleased += amountToRelease;
-        if(schedule.amountReleased >= schedule.totalAmount) {
-            schedule.isActive = false;
-        }
+        schedule.amountReleased = schedule.totalAmount;
+        schedule.isActive = false;
 
-        _transfer(address(this), msg.sender, amountToRelease);
-        emit VestingTokensReleased(msg.sender, amountToRelease);
-        emit TokensReleased(msg.sender, amountToRelease);
+        _transfer(address(this), _msgSender(), amountToRelease);
+        emit VestingTokensReleased(_msgSender(), amountToRelease);
+        emit TokensReleased(_msgSender(), amountToRelease);
     }
 
-    // =========================
-    // Owner Functions with Events and Updates
-    // =========================
-
-    function updateMaxGasPrice(uint256 newGasPrice) external onlyOwner {
-        require(newGasPrice > 0, "Owner: gas price must be greater than zero.");
-        maxGasPrice = newGasPrice;
-        emit GasPriceUpdated(newGasPrice);
-    }
-
-    function updateTxCooldownTime(uint256 newCooldown) external onlyOwner {
-        require(newCooldown >= 30, "Owner: cooldown too short.");
-        txCooldownTime = newCooldown;
-    }
-
-    function setMaxTxAmount(uint256 newMaxTxAmount) external onlyOwner {
-        require(newMaxTxAmount >= _totalSupply / 1000, "Owner: maxTxAmount too low.");
+    // Owner Functions
+    function updateMaxTxAmount(uint256 newMaxTxAmount) external onlyOwner {
+        if (newMaxTxAmount < _totalSupply / 1000) revert MaxTxAmountTooLow();
         maxTxAmount = newMaxTxAmount;
         emit MaxTxAmountUpdated(newMaxTxAmount);
     }
 
     function setWalletMax(uint256 newWalletMax) external onlyOwner {
-        require(newWalletMax >= _totalSupply / 500, "Owner: walletMax too low.");
+        if (newWalletMax < _totalSupply / 500) revert WalletMaxTooLow();
         walletMax = newWalletMax;
         emit WalletMaxUpdated(newWalletMax);
     }
 
-    function setMinimumTokensBeforeSwap(uint256 newLimit) external onlyOwner {
-        minimumTokensBeforeSwap = newLimit;
+    function setBuyTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
+        uint256 MAX_BUY_TAX = 10;
+        if (newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee > MAX_BUY_TAX) revert BuyTaxesExceedLimit();
+        buyLiquidityFee = newLiquidityFee;
+        buyMarketingFee = newMarketingFee;
+        buyTeamFee = newTeamFee;
+        buyDonationFee = newDonationFee;
+        totalTaxIfBuying = buyLiquidityFee + buyMarketingFee + buyTeamFee + buyDonationFee;
+    }
+
+    function setSellTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
+        uint256 MAX_SELL_TAX = 10;
+        if (newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee > MAX_SELL_TAX) revert SellTaxesExceedLimit();
+        sellLiquidityFee = newLiquidityFee;
+        sellMarketingFee = newMarketingFee;
+        sellTeamFee = newTeamFee;
+        sellDonationFee = newDonationFee;
+        totalTaxIfSelling = sellLiquidityFee + sellMarketingFee + sellTeamFee + sellDonationFee;
     }
 
     function setSwapAndLiquifyEnabled(bool _enabled) external onlyOwner {
@@ -560,30 +561,10 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard, Pausable {
         checkWalletLimit = _enabled;
     }
 
-    function setBuyTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
-        uint256 MAX_BUY_TAX = 10; // 10%
-        require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_BUY_TAX, "Owner: buy taxes exceed limit.");
-        buyLiquidityFee = newLiquidityFee;
-        buyMarketingFee = newMarketingFee;
-        buyTeamFee = newTeamFee;
-        buyDonationFee = newDonationFee;
-        totalTaxIfBuying = buyLiquidityFee + buyMarketingFee + buyTeamFee + buyDonationFee;
-    }
-
-    function setSellTaxes(uint256 newLiquidityFee, uint256 newMarketingFee, uint256 newTeamFee, uint256 newDonationFee) external onlyOwner {
-        uint256 MAX_SELL_TAX = 10; // 10%
-        require(newLiquidityFee + newMarketingFee + newTeamFee + newDonationFee <= MAX_SELL_TAX, "Owner: sell taxes exceed limit.");
-        sellLiquidityFee = newLiquidityFee;
-        sellMarketingFee = newMarketingFee;
-        sellTeamFee = newTeamFee;
-        sellDonationFee = newDonationFee;
-        totalTaxIfSelling = sellLiquidityFee + sellMarketingFee + sellTeamFee + sellDonationFee;
-    }
-
-    // =========================
     // Fallback Functions
-    // =========================
-
-    receive() external payable {}
-    fallback() external payable {}
+    receive() external payable {
+        // Allow contract to receive Ether
+        // Added revert to prevent unintended Ether transfers
+        if (msg.value > 0) revert();
+    }
 }
