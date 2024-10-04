@@ -57,8 +57,8 @@ library Address {
         require(address(this).balance >= amount, "Address: insufficient balance");
 
         // solhint-disable-next-line avoid-low-level-calls, avoid-call-value
-        (bool success, ) = recipient.call{ value: amount }("");
-        require(success, "Address: reverted");
+        (bool success, ) = recipient.call{value: amount}("");
+        require(success, "ETH transfer failed");
     }
 
     // Performs a low-level call to a target address with provided data
@@ -432,9 +432,9 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     string private _symbol = "PRIZEPOT";
     uint8 private _decimals = 9;
 
-    // Wallet addresses for marketing and team funds
-    address payable public marketingWalletAddress = payable(0x7184eAC82c0C3F6bcdFD1c28A508dC4a18120b1e); // Marketing Address
-    address payable public teamWalletAddress = payable(0xa26809d31cf0cCd4d11C520F84CE9a6Fc4d4bb75); // Team Address
+    // Wallet addresses for marketing and team funds (Set once in constructor)
+    address payable public immutable marketingWalletAddress;
+    address payable public immutable teamWalletAddress;
     address public immutable deadAddress = 0x000000000000000000000000000000000000dEaD; // Dead address for burning tokens
         
     // Mapping to keep track of each account's balance
@@ -464,8 +464,8 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     uint256 public _teamShare = 16;
 
     // Total taxes
-    uint256 public _totalTaxIfBuying = 12;
-    uint256 public _totalTaxIfSelling = 12;
+    uint256 public _totalTaxIfBuying = 6;
+    uint256 public _totalTaxIfSelling = 8;
     uint256 public _totalDistributionShares = 24;
 
     // Total supply and limits
@@ -473,6 +473,16 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     uint256 public _maxTxAmount = _totalSupply; 
     uint256 public _walletMax = _totalSupply;
     uint256 private minimumTokensBeforeSwap = _totalSupply; 
+
+    // Maximum fee limits
+    uint256 public constant MAX_TOTAL_FEE = 20; // Maximum total fee is 20%
+    uint256 public constant MAX_INDIVIDUAL_FEE = 10; // Maximum individual fee is 10%
+
+    // Minimum and maximum transaction and wallet limits
+    uint256 public MIN_TX_AMOUNT = _totalSupply / 10000; // Minimum 0.01% of total supply // Minimum 0.01% of total supply
+    uint256 public MAX_TX_AMOUNT = _totalSupply; // Max is total supply
+    uint256 public  MIN_WALLET_LIMIT = _totalSupply / 10000; // Minimum 0.01% of total supply
+    uint256 public  MAX_WALLET_LIMIT = _totalSupply; // Max is total supply
 
     // Uniswap router and pair addresses
     IUniswapV2Router02 public uniswapV2Router;
@@ -512,6 +522,10 @@ contract PRIZEPOT is Context, IERC20, Ownable {
         
     // Constructor to initialize the contract
     constructor () {
+
+        // Set the marketing and team wallet addresses
+        marketingWalletAddress = payable(0x7184eAC82c0C3F6bcdFD1c28A508dC4a18120b1e); // Marketing Address
+        teamWalletAddress = payable(0xa26809d31cf0cCd4d11C520F84CE9a6Fc4d4bb75); // Team Address
             
         // Initialize Uniswap router with the specified address
         IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); 
@@ -630,6 +644,13 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
     // Sets the buy taxes: liquidity, marketing, and team fees
     function setBuyTaxes(uint256 newLiquidityTax, uint256 newMarketingTax, uint256 newTeamTax) external onlyOwner() {
+        require(newLiquidityTax <= MAX_INDIVIDUAL_FEE, "Liquidity fee too high");
+        require(newMarketingTax <= MAX_INDIVIDUAL_FEE, "Marketing fee too high");
+        require(newTeamTax <= MAX_INDIVIDUAL_FEE, "Team fee too high");
+
+        uint256 totalFee = newLiquidityTax + newMarketingTax + newTeamTax;
+        require(totalFee <= MAX_TOTAL_FEE, "Total fee too high");
+
         _buyLiquidityFee = newLiquidityTax;
         _buyMarketingFee = newMarketingTax;
         _buyTeamFee = newTeamTax;
@@ -639,6 +660,13 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
     // Sets the sell taxes: liquidity, marketing, and team fees
     function setSellTaxes(uint256 newLiquidityTax, uint256 newMarketingTax, uint256 newTeamTax) external onlyOwner() {
+        require(newLiquidityTax <= MAX_INDIVIDUAL_FEE, "Liquidity fee too high");
+        require(newMarketingTax <= MAX_INDIVIDUAL_FEE, "Marketing fee too high");
+        require(newTeamTax <= MAX_INDIVIDUAL_FEE, "Team fee too high");
+
+        uint256 totalFee = newLiquidityTax + newMarketingTax + newTeamTax;
+        require(totalFee <= MAX_TOTAL_FEE, "Total fee too high");
+
         _sellLiquidityFee = newLiquidityTax;
         _sellMarketingFee = newMarketingTax;
         _sellTeamFee = newTeamTax;
@@ -657,6 +685,8 @@ contract PRIZEPOT is Context, IERC20, Ownable {
         
     // Sets the maximum transaction amount
     function setMaxTxAmount(uint256 maxTxAmount) external onlyOwner() {
+        require(maxTxAmount >= MIN_TX_AMOUNT, "Max transaction amount too low");
+        require(maxTxAmount <= MAX_TX_AMOUNT, "Max transaction amount too high");
         _maxTxAmount = maxTxAmount;
     }
 
@@ -672,22 +702,14 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
     // Sets the maximum number of tokens a wallet can hold
     function setWalletLimit(uint256 newLimit) external onlyOwner {
+        require(newLimit >= MIN_WALLET_LIMIT, "Wallet limit too low");
+        require(newLimit <= MAX_WALLET_LIMIT, "Wallet limit too high");
         _walletMax  = newLimit;
     }
 
     // Sets the minimum number of tokens before a swap is triggered
     function setNumTokensBeforeSwap(uint256 newLimit) external onlyOwner() {
         minimumTokensBeforeSwap = newLimit;
-    }
-
-    // Sets a new marketing wallet address
-    function setMarketingWalletAddress(address newAddress) external onlyOwner() {
-        marketingWalletAddress = payable(newAddress);
-    }
-
-    // Sets a new team wallet address
-    function setTeamWalletAddress(address newAddress) external onlyOwner() {
-        teamWalletAddress = payable(newAddress);
     }
 
     // Enables or disables the swap and liquify feature
@@ -708,30 +730,10 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
     // Transfers Ether to a specified address
     function transferToAddressETH(address payable recipient, uint256 amount) private {
-        recipient.transfer(amount);
+        (bool success, ) = recipient.call{value: amount}("");
+        require(success, "ETH transfer failed");
     }
-        
-    // Changes the Uniswap router version and updates the pair address accordingly
-    function changeRouterVersion(address newRouterAddress) public onlyOwner returns(address newPairAddress) {
 
-        IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(newRouterAddress); 
-
-        // Get the pair address for the new router
-        newPairAddress = IUniswapV2Factory(_uniswapV2Router.factory()).getPair(address(this), _uniswapV2Router.WETH());
-
-        if(newPairAddress == address(0)) // Create if it doesn't exist
-        {
-            newPairAddress = IUniswapV2Factory(_uniswapV2Router.factory())
-                .createPair(address(this), _uniswapV2Router.WETH());
-        }
-
-        uniswapPair = newPairAddress; // Set the new pair address
-        uniswapV2Router = _uniswapV2Router; // Set the new router address
-
-        // Exempt the new pair from wallet limits and mark it as a market pair
-        isWalletLimitExempt[address(uniswapPair)] = true;
-        isMarketPair[address(uniswapPair)] = true;
-    }
 
      // Function to receive ETH from UniswapV2Router when swapping
     receive() external payable {}
@@ -831,6 +833,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
             addLiquidity(tokensForLP, amountBNBLiquidity); // Add liquidity to Uniswap
     }
         
+    // Swaps a specified amount of tokens for ETH using Uniswap
     // Swaps a specified amount of tokens for ETH using Uniswap
     function swapTokensForEth(uint256 tokenAmount) private {
         // Generate the Uniswap pair path of token -> WETH
