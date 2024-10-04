@@ -152,28 +152,25 @@ contract Ownable is Context {
     }
         
     // Returns the current block timestamp
-    function getBlockNumber() public view returns (uint256) {
-        return block.number;
+    function getTime() public view returns (uint256) {
+        return block.timestamp;
     }
 
-
     // Locks the contract for the owner for the specified amount of time
-    function lock(uint256 blocks) public virtual onlyOwner {
+    function lock(uint256 time) public virtual onlyOwner {
         _previousOwner = _owner;
         _owner = address(0);
-        _lockTime = block.number + blocks; 
+        _lockTime = block.timestamp + time;
         emit OwnershipTransferred(_owner, address(0));
     }
         
     // Unlocks the contract for the owner after the lock time has passed
     function unlock() public virtual {
         require(_previousOwner == _msgSender(), "no permission ");
-        // Allows the previous owner to regain ownership after the lock block has passed.
-        require(block.number > _lockTime, "Contract is locked");
+        require(block.timestamp > _lockTime + 1 minutes, "Contract is locked");
         emit OwnershipTransferred(_owner, _previousOwner);
         _owner = _previousOwner;
     }
-
 }
 
 // Interface for the Uniswap V2 Factory
@@ -224,8 +221,8 @@ interface IUniswapV2Pair {
     function transferFrom(address from, address to, uint value) external returns (bool);
 
     // EIP-2612 permit functionality
-    function domainSeparator() external view returns (bytes32);
-    function permitTypehasH() external pure returns (bytes32);
+    function DOMAIN_SEPARATOR() external view returns (bytes32);
+    function PERMIT_TYPEHASH() external pure returns (bytes32);
     function nonces(address owner) external view returns (uint);
 
     // Allows owner to approve spender to spend value before deadline
@@ -244,7 +241,7 @@ interface IUniswapV2Pair {
     event Sync(uint112 reserve0, uint112 reserve1);
 
     // Liquidity functions
-    function miniMumLiquidity() external pure returns (uint);
+    function MINIMUM_LIQUIDITY() external pure returns (uint);
     function factory() external view returns (address);
     function token0() external view returns (address);
     function token1() external view returns (address);
@@ -268,7 +265,7 @@ interface IUniswapV2Router01 {
     // Returns the factory address
     function factory() external pure returns (address);
     // Returns the WETH address
-    function weth() external pure returns (address);
+    function WETH() external pure returns (address);
 
     // Liquidity management functions
     function addLiquidity(
@@ -426,7 +423,7 @@ interface IUniswapV2Router02 is IUniswapV2Router01 {
 }
 
 // Main contract implementing the ERC20 token with additional features
-contract PrizePot is Context, IERC20, Ownable {
+contract PRIZEPOT is Context, IERC20, Ownable {
         
     using Address for address;  // Using Address library for address type
         
@@ -482,10 +479,10 @@ contract PrizePot is Context, IERC20, Ownable {
     uint256 public constant MAX_INDIVIDUAL_FEE = 10; // Maximum individual fee is 10%
 
     // Minimum and maximum transaction and wallet limits
-    uint256 public minTxAmount = _totalSupply / 10000; // Minimum 0.01% of total supply // Minimum 0.01% of total supply
-    uint256 public maXtxAmounT = _totalSupply; // Max is total supply
-    uint256 public  minWalletLimit = _totalSupply / 10000; // Minimum 0.01% of total supply
-    uint256 public  maxWalleTlimiT = _totalSupply; // Max is total supply
+    uint256 public MIN_TX_AMOUNT = _totalSupply / 10000; // Minimum 0.01% of total supply // Minimum 0.01% of total supply
+    uint256 public MAX_TX_AMOUNT = _totalSupply; // Max is total supply
+    uint256 public  MIN_WALLET_LIMIT = _totalSupply / 10000; // Minimum 0.01% of total supply
+    uint256 public  MAX_WALLET_LIMIT = _totalSupply; // Max is total supply
 
     // Uniswap router and pair addresses
     IUniswapV2Router02 public uniswapV2Router;
@@ -535,7 +532,7 @@ contract PrizePot is Context, IERC20, Ownable {
 
         // Create a Uniswap pair for this token
         uniswapPair = IUniswapV2Factory(_uniswapV2Router.factory())
-            .createPair(address(this), _uniswapV2Router.weth());
+            .createPair(address(this), _uniswapV2Router.WETH());
 
         // Set the Uniswap router
         uniswapV2Router = _uniswapV2Router;
@@ -688,8 +685,8 @@ contract PrizePot is Context, IERC20, Ownable {
         
     // Sets the maximum transaction amount
     function setMaxTxAmount(uint256 maxTxAmount) external onlyOwner() {
-        require(maxTxAmount >= minTxAmount, "Max transaction amount too low");
-        require(maxTxAmount <= maXtxAmounT, "Max transaction amount too high");
+        require(maxTxAmount >= MIN_TX_AMOUNT, "Max transaction amount too low");
+        require(maxTxAmount <= MAX_TX_AMOUNT, "Max transaction amount too high");
         _maxTxAmount = maxTxAmount;
     }
 
@@ -705,8 +702,8 @@ contract PrizePot is Context, IERC20, Ownable {
 
     // Sets the maximum number of tokens a wallet can hold
     function setWalletLimit(uint256 newLimit) external onlyOwner {
-        require(newLimit >= minWalletLimit, "Wallet limit too low");
-        require(newLimit <= maxWalleTlimiT, "Wallet limit too high");
+        require(newLimit >= MIN_WALLET_LIMIT, "Wallet limit too low");
+        require(newLimit <= MAX_WALLET_LIMIT, "Wallet limit too high");
         _walletMax  = newLimit;
     }
 
@@ -842,7 +839,7 @@ contract PrizePot is Context, IERC20, Ownable {
         // Generate the Uniswap pair path of token -> WETH
         address[] memory path = new address[](2);
         path[0] = address(this);
-        path[1] = uniswapV2Router.weth();
+        path[1] = uniswapV2Router.WETH();
 
         _approve(address(this), address(uniswapV2Router), tokenAmount); // Approve the router to spend tokens
 
