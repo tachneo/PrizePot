@@ -44,81 +44,12 @@ interface IERC20 {
     event Approval(address indexed owner, address indexed spender, uint256 value);
 }
 
-// Library providing safe mathematical operations to prevent overflows and underflows
-library SafeMath {
-
-    // Adds two unsigned integers, reverts on overflow
-    function add(uint256 a, uint256 b) internal pure returns (uint256) {
-        uint256 c = a + b;
-        require(c >= a, "SafeMath: addition overflow");
-
-        return c;
-    }
-
-    // Subtracts two unsigned integers, reverts on underflow
-    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-        return sub(a, b, "SafeMath: subtraction overflow");
-    }
-
-    // Subtracts two unsigned integers with a custom error message, reverts on underflow
-    function sub(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
-        require(b <= a, errorMessage);
-        uint256 c = a - b;
-
-        return c;
-    }
-
-    // Multiplies two unsigned integers, reverts on overflow
-    function mul(uint256 a, uint256 b) internal pure returns (uint256) {
-        if (a == 0) {
-            return 0;
-        }
-
-        uint256 c = a * b;
-        require(c / a == b, "SafeMath: multiplication overflow");
-
-        return c;
-    }
-
-    // Divides two unsigned integers, reverts on division by zero
-    function div(uint256 a, uint256 b) internal pure returns (uint256) {
-        return div(a, b, "SafeMath: division by zero");
-    }
-
-    // Divides two unsigned integers with a custom error message, reverts on division by zero
-    function div(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
-        require(b > 0, errorMessage);
-        uint256 c = a / b;
-        // assert(a == b * c + a % b); // There is no case in which this doesn't hold
-
-        return c;
-    }
-
-    // Returns the remainder of dividing two unsigned integers, reverts on division by zero
-    function mod(uint256 a, uint256 b) internal pure returns (uint256) {
-        return mod(a, b, "SafeMath: modulo by zero");
-    }
-
-    // Returns the remainder of dividing two unsigned integers with a custom error message, reverts on division by zero
-    function mod(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
-        require(b != 0, errorMessage);
-        return a % b;
-    }
-}
-
 // Library with utility functions related to the address type
 library Address {
 
     // Checks if an address is a contract
     function isContract(address account) internal view returns (bool) {
-        // According to EIP-1052, 0x0 is the value returned for not-yet created accounts
-        // and 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470 is returned
-        // for accounts without code, i.e. `keccak256('')`
-        bytes32 codehash;
-        bytes32 accountHash = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
-        // solhint-disable-next-line no-inline-assembly
-        assembly { codehash := extcodehash(account) }
-        return (codehash != accountHash && codehash != 0x0);
+        return account.code.length > 0;
     }
 
     // Sends Ether to an address, reverts on failure
@@ -127,7 +58,7 @@ library Address {
 
         // solhint-disable-next-line avoid-low-level-calls, avoid-call-value
         (bool success, ) = recipient.call{ value: amount }("");
-        require(success, "Address: unable to send value, recipient may have reverted");
+        require(success, "Address: reverted");
     }
 
     // Performs a low-level call to a target address with provided data
@@ -147,7 +78,7 @@ library Address {
 
     // Performs a low-level call to a target address with provided data, Ether value, and custom error message
     function functionCallWithValue(address target, bytes memory data, uint256 value, string memory errorMessage) internal returns (bytes memory) {
-        require(address(this).balance >= value, "Address: insufficient balance for call");
+        require(address(this).balance >= value, "Address: NO balance");
         return _functionCallWithValue(target, data, value, errorMessage);
     }
 
@@ -195,13 +126,13 @@ contract Ownable is Context {
     function owner() public view returns (address) {
         return _owner;
     }   
-    
+        
     // Modifier to restrict function access to the owner only
     modifier onlyOwner() {
         require(_owner == _msgSender(), "Ownable: caller is not the owner");
         _;
     }
-    
+        
     // Allows the current owner to relinquish control of the contract
     function waiveOwnership() public virtual onlyOwner {
         emit OwnershipTransferred(_owner, address(0));
@@ -210,7 +141,7 @@ contract Ownable is Context {
 
     // Transfers ownership of the contract to a new account (`newOwner`)
     function transferOwnership(address newOwner) public virtual onlyOwner {
-        require(newOwner != address(0), "Ownable: new owner is the zero address");
+        require(newOwner != address(0), "Ownable: NOZAddress");
         emit OwnershipTransferred(_owner, newOwner);
         _owner = newOwner;
     }
@@ -219,7 +150,7 @@ contract Ownable is Context {
     function getUnlockTime() public view returns (uint256) {
         return _lockTime;
     }
-    
+        
     // Returns the current block timestamp
     function getTime() public view returns (uint256) {
         return block.timestamp;
@@ -232,11 +163,11 @@ contract Ownable is Context {
         _lockTime = block.timestamp + time;
         emit OwnershipTransferred(_owner, address(0));
     }
-    
+        
     // Unlocks the contract for the owner after the lock time has passed
     function unlock() public virtual {
-        require(_previousOwner == msg.sender, "You don't have permission to unlock");
-        require(block.timestamp > _lockTime , "Contract is locked until 7 days");
+        require(_previousOwner == _msgSender(), "You don't have permission to unlock");
+        require(block.timestamp > _lockTime , "Contract is locked until lock time expires");
         emit OwnershipTransferred(_owner, _previousOwner);
         _owner = _previousOwner;
     }
@@ -296,7 +227,7 @@ interface IUniswapV2Pair {
 
     // Allows owner to approve spender to spend value before deadline
     function permit(address owner, address spender, uint value, uint deadline, uint8 v, bytes32 r, bytes32 s) external;
-    
+        
     // Additional events
     event Burn(address indexed sender, uint amount0, uint amount1, address indexed to);
     event Swap(
@@ -493,10 +424,9 @@ interface IUniswapV2Router02 is IUniswapV2Router01 {
 
 // Main contract implementing the ERC20 token with additional features
 contract PRIZEPOT is Context, IERC20, Ownable {
-    
-    using SafeMath for uint256; // Using SafeMath library for uint256
+        
     using Address for address;  // Using Address library for address type
-    
+        
     // Token details
     string private _name = "PRIZE POT";
     string private _symbol = "PRIZEPOT";
@@ -506,12 +436,12 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     address payable public marketingWalletAddress = payable(0x7184eAC82c0C3F6bcdFD1c28A508dC4a18120b1e); // Marketing Address
     address payable public teamWalletAddress = payable(0xa26809d31cf0cCd4d11C520F84CE9a6Fc4d4bb75); // Team Address
     address public immutable deadAddress = 0x000000000000000000000000000000000000dEaD; // Dead address for burning tokens
-    
+        
     // Mapping to keep track of each account's balance
-    mapping (address => uint256) _balances;
+    mapping (address => uint256) private _balances;
     // Mapping to keep track of allowances
     mapping (address => mapping (address => uint256)) private _allowances;
-    
+        
     // Mappings to manage fee and limit exemptions
     mapping (address => bool) public isExcludedFromFee;
     mapping (address => bool) public isWalletLimitExempt;
@@ -522,7 +452,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     uint256 public _buyLiquidityFee = 2;
     uint256 public _buyMarketingFee = 2;
     uint256 public _buyTeamFee = 2;
-    
+        
     // Fees for selling
     uint256 public _sellLiquidityFee = 2;
     uint256 public _sellMarketingFee = 2;
@@ -539,15 +469,15 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     uint256 public _totalDistributionShares = 24;
 
     // Total supply and limits
-    uint256 private _totalSupply = 10000000000000 * 10**6 * 10**6 * 10**_decimals;
-    uint256 public _maxTxAmount = 10000000000000 * 10**6 * 10**6 * 10**_decimals; 
-    uint256 public _walletMax = 10000000000000 * 10**6 * 10**6 * 10**_decimals;
-    uint256 private minimumTokensBeforeSwap = 10000000000000 * 10**6 * 10**_decimals; 
+    uint256 private _totalSupply = 10000000000000 * (10 ** _decimals);
+    uint256 public _maxTxAmount = _totalSupply; 
+    uint256 public _walletMax = _totalSupply;
+    uint256 private minimumTokensBeforeSwap = _totalSupply; 
 
     // Uniswap router and pair addresses
     IUniswapV2Router02 public uniswapV2Router;
     address public uniswapPair;
-    
+        
     // Flags for swap and liquify functionality
     bool inSwapAndLiquify;
     bool public swapAndLiquifyEnabled = true;
@@ -561,28 +491,28 @@ contract PRIZEPOT is Context, IERC20, Ownable {
         uint256 ethReceived,
         uint256 tokensIntoLiqudity
     );
-    
+        
     // Events for token and ETH swaps
     event SwapETHForTokens(
         uint256 amountIn,
         address[] path
     );
-    
+        
     event SwapTokensForETH(
         uint256 amountIn,
         address[] path
     );
-    
+        
     // Modifier to prevent reentrancy during swap and liquify
     modifier lockTheSwap {
         inSwapAndLiquify = true;
         _;
         inSwapAndLiquify = false;
     }
-    
+        
     // Constructor to initialize the contract
     constructor () {
-        
+            
         // Initialize Uniswap router with the specified address
         IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E); 
 
@@ -598,17 +528,17 @@ contract PRIZEPOT is Context, IERC20, Ownable {
         // Exclude owner and contract from fee
         isExcludedFromFee[owner()] = true;
         isExcludedFromFee[address(this)] = true;
-        
+            
         // Calculate total taxes for buying and selling
-        _totalTaxIfBuying = _buyLiquidityFee.add(_buyMarketingFee).add(_buyTeamFee);
-        _totalTaxIfSelling = _sellLiquidityFee.add(_sellMarketingFee).add(_sellTeamFee);
-        _totalDistributionShares = _liquidityShare.add(_marketingShare).add(_teamShare);
+        _totalTaxIfBuying = _buyLiquidityFee + _buyMarketingFee + _buyTeamFee;
+        _totalTaxIfSelling = _sellLiquidityFee + _sellMarketingFee + _sellTeamFee;
+        _totalDistributionShares = _liquidityShare + _marketingShare + _teamShare;
 
         // Exempt owner, Uniswap pair, and contract from wallet limit
         isWalletLimitExempt[owner()] = true;
         isWalletLimitExempt[address(uniswapPair)] = true;
         isWalletLimitExempt[address(this)] = true;
-        
+            
         // Exempt owner and contract from transaction limit
         isTxLimitExempt[owner()] = true;
         isTxLimitExempt[address(this)] = true;
@@ -653,13 +583,13 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
     // Increases the allowance of a spender
     function increaseAllowance(address spender, uint256 addedValue) public virtual returns (bool) {
-        _approve(_msgSender(), spender, _allowances[_msgSender()][spender].add(addedValue));
+        _approve(_msgSender(), spender, _allowances[_msgSender()][spender] + addedValue);
         return true;
     }
 
     // Decreases the allowance of a spender
     function decreaseAllowance(address spender, uint256 subtractedValue) public virtual returns (bool) {
-        _approve(_msgSender(), spender, _allowances[_msgSender()][spender].sub(subtractedValue, "ERC20: decreased allowance below zero"));
+        _approve(_msgSender(), spender, _allowances[_msgSender()][spender] - subtractedValue);
         return true;
     }
 
@@ -692,7 +622,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     function setIsTxLimitExempt(address holder, bool exempt) external onlyOwner {
         isTxLimitExempt[holder] = exempt;
     }
-    
+        
     // Sets the fee exemption status for a specific account
     function setIsExcludedFromFee(address account, bool newValue) public onlyOwner {
         isExcludedFromFee[account] = newValue;
@@ -704,7 +634,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
         _buyMarketingFee = newMarketingTax;
         _buyTeamFee = newTeamTax;
 
-        _totalTaxIfBuying = _buyLiquidityFee.add(_buyMarketingFee).add(_buyTeamFee);
+        _totalTaxIfBuying = _buyLiquidityFee + _buyMarketingFee + _buyTeamFee;
     }
 
     // Sets the sell taxes: liquidity, marketing, and team fees
@@ -713,18 +643,18 @@ contract PRIZEPOT is Context, IERC20, Ownable {
         _sellMarketingFee = newMarketingTax;
         _sellTeamFee = newTeamTax;
 
-        _totalTaxIfSelling = _sellLiquidityFee.add(_sellMarketingFee).add(_sellTeamFee);
+        _totalTaxIfSelling = _sellLiquidityFee + _sellMarketingFee + _sellTeamFee;
     }
-    
+        
     // Sets the distribution shares for liquidity, marketing, and team
     function setDistributionSettings(uint256 newLiquidityShare, uint256 newMarketingShare, uint256 newTeamShare) external onlyOwner() {
         _liquidityShare = newLiquidityShare;
         _marketingShare = newMarketingShare;
         _teamShare = newTeamShare;
 
-        _totalDistributionShares = _liquidityShare.add(_marketingShare).add(_teamShare);
+        _totalDistributionShares = _liquidityShare + _marketingShare + _teamShare;
     }
-    
+        
     // Sets the maximum transaction amount
     function setMaxTxAmount(uint256 maxTxAmount) external onlyOwner() {
         _maxTxAmount = maxTxAmount;
@@ -770,17 +700,17 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     function setSwapAndLiquifyByLimitOnly(bool newValue) public onlyOwner {
         swapAndLiquifyByLimitOnly = newValue;
     }
-    
+        
     // Returns the circulating supply (total supply minus the balance of the dead address)
     function getCirculatingSupply() public view returns (uint256) {
-        return _totalSupply.sub(balanceOf(deadAddress));
+        return _totalSupply - balanceOf(deadAddress);
     }
 
     // Transfers Ether to a specified address
     function transferToAddressETH(address payable recipient, uint256 amount) private {
         recipient.transfer(amount);
     }
-    
+        
     // Changes the Uniswap router version and updates the pair address accordingly
     function changeRouterVersion(address newRouterAddress) public onlyOwner returns(address newPairAddress) {
 
@@ -805,7 +735,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
      // Function to receive ETH from UniswapV2Router when swapping
     receive() external payable {}
-    
+        
     // Transfers tokens to a specified address
     function transfer(address recipient, uint256 amount) public override returns (bool) {
         _transfer(_msgSender(), recipient, amount);
@@ -816,7 +746,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
         _transfer(sender, recipient, amount);
         // Decrease the allowance accordingly
-        _approve(sender, _msgSender(), _allowances[sender][_msgSender()].sub(amount, "ERC20: transfer amount exceeds allowance"));
+        _approve(sender, _msgSender(), _allowances[sender][_msgSender()] - amount);
         return true;
     }
 
@@ -838,7 +768,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
             uint256 contractTokenBalance = balanceOf(address(this)); // Get the contract's token balance
             bool overMinimumTokenBalance = contractTokenBalance >= minimumTokensBeforeSwap;
-            
+                
             // Check if conditions are met to perform swap and liquify
             if (overMinimumTokenBalance && !inSwapAndLiquify && !isMarketPair[sender] && swapAndLiquifyEnabled) 
             {
@@ -848,7 +778,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
             }
 
             // Subtract the amount from the sender's balance
-            _balances[sender] = _balances[sender].sub(amount, "Insufficient Balance");
+            _balances[sender] = _balances[sender] - amount;
 
             // Calculate the final amount after deducting fees if applicable
             uint256 finalAmount = (isExcludedFromFee[sender] || isExcludedFromFee[recipient]) ? 
@@ -856,10 +786,10 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
             // Check wallet limit if applicable
             if(checkWalletLimit && !isWalletLimitExempt[recipient])
-                require(balanceOf(recipient).add(finalAmount) <= _walletMax, "Recipient wallet exceeds max limit");
+                require(balanceOf(recipient) + finalAmount <= _walletMax, "exceeds max limit");
 
             // Add the final amount to the recipient's balance
-            _balances[recipient] = _balances[recipient].add(finalAmount);
+            _balances[recipient] = _balances[recipient] + finalAmount;
 
             emit Transfer(sender, recipient, finalAmount); // Emit the transfer event
             return true;
@@ -868,28 +798,28 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
     // Performs a basic transfer without taking any fees
     function _basicTransfer(address sender, address recipient, uint256 amount) internal returns (bool) {
-        _balances[sender] = _balances[sender].sub(amount, "Insufficient Balance"); // Subtract from sender
-        _balances[recipient] = _balances[recipient].add(amount); // Add to recipient
+        _balances[sender] = _balances[sender] - amount; // Subtract from sender
+        _balances[recipient] = _balances[recipient] + amount; // Add to recipient
         emit Transfer(sender, recipient, amount); // Emit transfer event
         return true;
     }
 
     // Handles swapping tokens for ETH and adding liquidity
     function swapAndLiquify(uint256 tAmount) private lockTheSwap {
-        
+            
         // Calculate tokens for liquidity
-        uint256 tokensForLP = tAmount.mul(_liquidityShare).div(_totalDistributionShares).div(2);
-        uint256 tokensForSwap = tAmount.sub(tokensForLP); // Remaining tokens to swap
+        uint256 tokensForLP = tAmount * _liquidityShare / _totalDistributionShares / 2;
+        uint256 tokensForSwap = tAmount - tokensForLP; // Remaining tokens to swap
 
         swapTokensForEth(tokensForSwap); // Swap tokens for ETH
         uint256 amountReceived = address(this).balance; // Get the ETH received from swap
 
-        uint256 totalBNBFee = _totalDistributionShares.sub(_liquidityShare.div(2));
-        
+        uint256 totalBNBFee = _totalDistributionShares - (_liquidityShare / 2);
+            
         // Calculate amounts for liquidity, team, and marketing
-        uint256 amountBNBLiquidity = amountReceived.mul(_liquidityShare).div(totalBNBFee).div(2);
-        uint256 amountBNBTeam = amountReceived.mul(_teamShare).div(totalBNBFee);
-        uint256 amountBNBMarketing = amountReceived.sub(amountBNBLiquidity).sub(amountBNBTeam);
+        uint256 amountBNBLiquidity = amountReceived * _liquidityShare / totalBNBFee / 2;
+        uint256 amountBNBTeam = amountReceived * _teamShare / totalBNBFee;
+        uint256 amountBNBMarketing = amountReceived - amountBNBLiquidity - amountBNBTeam;
 
         if(amountBNBMarketing > 0)
             transferToAddressETH(marketingWalletAddress, amountBNBMarketing); // Transfer to marketing wallet
@@ -900,7 +830,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
         if(amountBNBLiquidity > 0 && tokensForLP > 0)
             addLiquidity(tokensForLP, amountBNBLiquidity); // Add liquidity to Uniswap
     }
-    
+        
     // Swaps a specified amount of tokens for ETH using Uniswap
     function swapTokensForEth(uint256 tokenAmount) private {
         // Generate the Uniswap pair path of token -> WETH
@@ -922,6 +852,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
         emit SwapTokensForETH(tokenAmount, path); // Emit event after swap
     }
 
+
     // Adds liquidity to Uniswap using the specified token and ETH amounts
     function addLiquidity(uint256 tokenAmount, uint256 ethAmount) private {
         _approve(address(this), address(uniswapV2Router), tokenAmount); // Approve token transfer to the router
@@ -939,22 +870,22 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
     // Takes fee on transactions based on whether it's a buy or sell
     function takeFee(address sender, address recipient, uint256 amount) internal returns (uint256) {
-        
+            
         uint256 feeAmount = 0;
-        
+            
         if(isMarketPair[sender]) {
-            feeAmount = amount.mul(_totalTaxIfBuying).div(100); // Calculate buy fee
+            feeAmount = amount * _totalTaxIfBuying / 100; // Calculate buy fee
         }
         else if(isMarketPair[recipient]) {
-            feeAmount = amount.mul(_totalTaxIfSelling).div(100); // Calculate sell fee
+            feeAmount = amount * _totalTaxIfSelling / 100; // Calculate sell fee
         }
-        
+            
         if(feeAmount > 0) {
-            _balances[address(this)] = _balances[address(this)].add(feeAmount); // Add fee to contract balance
+            _balances[address(this)] = _balances[address(this)] + feeAmount; // Add fee to contract balance
             emit Transfer(sender, address(this), feeAmount); // Emit transfer event for fee
         }
 
-        return amount.sub(feeAmount); // Return the amount after fee deduction
+        return amount - feeAmount; // Return the amount after fee deduction
     }
-    
+        
 }
