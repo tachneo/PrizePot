@@ -166,8 +166,8 @@ contract Ownable is Context {
         
     // Unlocks the contract for the owner after the lock time has passed
     function unlock() public virtual {
-        require(_previousOwner == _msgSender(), "You don't have permission to unlock");
-        require(block.timestamp > _lockTime , "Contract is locked until lock time expires");
+        require(_previousOwner == _msgSender(), "no permission ");
+        require(block.timestamp > _lockTime , "Contract is locked");
         emit OwnershipTransferred(_owner, _previousOwner);
         _owner = _previousOwner;
     }
@@ -620,8 +620,8 @@ contract PRIZEPOT is Context, IERC20, Ownable {
 
     // Internal function to handle approvals
     function _approve(address owner, address spender, uint256 amount) private {
-        require(owner != address(0), "ERC20: approve from the zero address"); // Prevent approving from the zero address
-        require(spender != address(0), "ERC20: approve to the zero address"); // Prevent approving to the zero address
+        require(owner != address(0), "ERC20: from zero address"); // Prevent approving from the zero address
+        require(spender != address(0), "ERC20: to zero address"); // Prevent approving to the zero address
 
         _allowances[owner][spender] = amount; // Set the allowance
         emit Approval(owner, spender, amount); // Emit Approval event
@@ -755,8 +755,8 @@ contract PRIZEPOT is Context, IERC20, Ownable {
     // Internal function to handle transfers, including fee logic and swap & liquify
     function _transfer(address sender, address recipient, uint256 amount) private returns (bool) {
 
-        require(sender != address(0), "ERC20: transfer from the zero address"); // Prevent transfer from zero address
-        require(recipient != address(0), "ERC20: transfer to the zero address"); // Prevent transfer to zero address
+        require(sender != address(0), "ERC20: from zero address"); // Prevent transfer from zero address
+        require(recipient != address(0), "ERC20: to zero address"); // Prevent transfer to zero address
 
         if(inSwapAndLiquify)
         { 
@@ -765,7 +765,7 @@ contract PRIZEPOT is Context, IERC20, Ownable {
         else
         {
             if(!isTxLimitExempt[sender] && !isTxLimitExempt[recipient]) {
-                require(amount <= _maxTxAmount, "Transfer amount exceeds the maxTxAmount."); // Enforce max transaction limit
+                require(amount <= _maxTxAmount, "exceeds maxTxAmount."); // Enforce max transaction limit
             }            
 
             uint256 contractTokenBalance = balanceOf(address(this)); // Get the contract's token balance
