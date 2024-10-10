@@ -7,33 +7,10 @@ pragma solidity ^0.8.27;
  *
  * @custom:dev-run-script ./scripts/deploy.js
  */
-abstract contract ReentrancyGuard {
-    uint256 private constant _NOT_ENTERED = 1;
-    uint256 private constant _ENTERED = 2;
-    
-    uint256 private _status;
-    
-    constructor () {
-        _status = _NOT_ENTERED;
-    }
-    
-    /**
-     * @dev Prevents a contract from calling itself, directly or indirectly.
-     * Applying the nonReentrant modifier to functions ensures that there are no nested (reentrant) calls to them.
-     */
-    modifier nonReentrant() {
-        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
-        
-        _status = _ENTERED;
-        
-        _;
-        
-        _status = _NOT_ENTERED;
-    }
-}
 
 /**
- * @dev Abstract contract providing information about the current execution context.
+ * @dev Provides information about the current execution context, including the
+ * sender of the transaction and its data.
  */
 abstract contract Context {
     function _msgSender() internal view virtual returns (address payable) {
@@ -43,6 +20,98 @@ abstract contract Context {
     function _msgData() internal view virtual returns (bytes memory) {
         this; // Silence state mutability warning without generating bytecode
         return msg.data;
+    }
+}
+
+/**
+ * @dev Contract module which provides a basic access control mechanism, where
+ * there is an account (an owner) that can be granted exclusive access to
+ * specific functions.
+ */
+contract Ownable is Context {
+    address private _owner;
+    address private _previousOwner;
+    uint256 private _lockTime;
+
+    // Event emitted when ownership is transferred
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    /**
+     * @dev Initializes the contract setting the deployer as the initial owner.
+     */
+    constructor () {
+        address msgSender = _msgSender();
+        _owner = msgSender;
+        emit OwnershipTransferred(address(0), msgSender);
+    }
+
+    /**
+     * @dev Returns the address of the current owner.
+     */
+    function owner() public view returns (address) {
+        return _owner;
+    }   
+    
+    /**
+     * @dev Modifier to restrict function access to the owner only.
+     */
+    modifier onlyOwner() {
+        require(_owner == _msgSender(), "Ownable: caller is not the owner");
+        _;
+    }
+        
+    /**
+     * @dev Allows the current owner to relinquish control of the contract.
+     */
+    function waiveOwnership() public virtual onlyOwner {
+        emit OwnershipTransferred(_owner, address(0));
+        _owner = address(0);
+    }
+
+    /**
+     * @dev Transfers ownership of the contract to a new account (`newOwner`).
+     * Can only be called by the current owner.
+     */
+    function transferOwnership(address newOwner) public virtual onlyOwner {
+        require(newOwner != address(0), "Ownable: new owner is the zero address");
+        emit OwnershipTransferred(_owner, newOwner);
+        _owner = newOwner;
+    }
+
+    /**
+     * @dev Returns the unlock time if the contract is locked.
+     */
+    function getUnlockTime() public view returns (uint256) {
+        return _lockTime;
+    }
+        
+    /**
+     * @dev Returns the current block timestamp.
+     */
+    function getTime() public view returns (uint256) {
+        return block.timestamp;
+    }
+
+    /**
+     * @dev Locks the contract for the owner for the specified amount of time.
+     * Can only be called by the current owner.
+     */
+    function lock(uint256 time) public virtual onlyOwner {
+        _previousOwner = _owner;
+        _owner = address(0);
+        _lockTime = block.timestamp + time;
+        emit OwnershipTransferred(_owner, address(0));
+    }
+        
+    /**
+     * @dev Unlocks the contract for the owner after the lock time has passed.
+     * Can only be called by the previous owner.
+     */
+    function unlock() public virtual {
+        require(_previousOwner == _msgSender(), "Ownable: caller is not the previous owner");
+        require(block.timestamp > _lockTime, "Ownable: contract is still locked");
+        emit OwnershipTransferred(address(0), _previousOwner);
+        _owner = _previousOwner;
     }
 }
 
@@ -96,73 +165,30 @@ library Address {
 }
 
 /**
- * @dev Contract module which provides a basic access control mechanism, where
- * there is an account (an owner) that can be granted exclusive access to
- * specific functions.
+ * @dev Reentrancy guard contract to prevent reentrant calls.
  */
-contract Ownable is Context {
-    address private _owner;
-    address private _previousOwner;
-    uint256 private _lockTime;
-
-    // Event emitted when ownership is transferred
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-
-    // Initializes the contract setting the deployer as the initial owner
+abstract contract ReentrancyGuard {
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    
+    uint256 private _status;
+    
     constructor () {
-        address msgSender = _msgSender();
-        _owner = msgSender;
-        emit OwnershipTransferred(address(0), msgSender);
+        _status = _NOT_ENTERED;
     }
-
-    // Returns the address of the current owner
-    function owner() public view returns (address) {
-        return _owner;
-    }   
+    
+    /**
+     * @dev Prevents a contract from calling itself, directly or indirectly.
+     * Applying the nonReentrant modifier to functions ensures that there are no nested (reentrant) calls to them.
+     */
+    modifier nonReentrant() {
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
         
-    // Modifier to restrict function access to the owner only
-    modifier onlyOwner() {
-        require(_owner == _msgSender(), "Ownable: caller is not the owner");
+        _status = _ENTERED;
+        
         _;
-    }
         
-    // Allows the current owner to relinquish control of the contract
-    function waiveOwnership() public virtual onlyOwner {
-        emit OwnershipTransferred(_owner, address(0));
-        _owner = address(0);
-    }
-
-    // Transfers ownership of the contract to a new account (`newOwner`)
-    function transferOwnership(address newOwner) public virtual onlyOwner {
-        require(newOwner != address(0), "Ownable: new owner is the zero address");
-        emit OwnershipTransferred(_owner, newOwner);
-        _owner = newOwner;
-    }
-
-    // Returns the unlock time if the contract is locked
-    function getUnlockTime() public view returns (uint256) {
-        return _lockTime;
-    }
-        
-    // Returns the current block timestamp
-    function getTime() public view returns (uint256) {
-        return block.timestamp;
-    }
-
-    // Locks the contract for the owner for the specified amount of time
-    function lock(uint256 time) public virtual onlyOwner {
-        _previousOwner = _owner;
-        _owner = address(0);
-        _lockTime = block.timestamp + time;
-        emit OwnershipTransferred(_previousOwner, address(0));
-    }
-        
-    // Unlocks the contract for the owner after the lock time has passed
-    function unlock() public virtual {
-        require(_previousOwner == _msgSender(), "Ownable: caller is not the previous owner");
-        require(block.timestamp > _lockTime, "Ownable: contract is still locked");
-        emit OwnershipTransferred(address(0), _previousOwner);
-        _owner = _previousOwner;
+        _status = _NOT_ENTERED;
     }
 }
 
@@ -455,9 +481,9 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
     string private _symbol = "PPOT";
     uint8 private _decimals = 9;
 
-    // Wallet addresses for marketing and team funds (Set once in constructor)
-    address payable public immutable marketingWalletAddress;
-    address payable public immutable teamWalletAddress;
+    // Wallet addresses for marketing and team funds
+    address payable public marketingWalletAddress;
+    address payable public teamWalletAddress;
     address public immutable deadAddress = 0x000000000000000000000000000000000000dEaD; // Dead address for burning tokens
         
     // Mapping to keep track of each account's balance
@@ -535,6 +561,10 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         uint256 amountIn,
         address[] path
     );
+        
+    // Events for Ether and ERC20 withdrawals
+    event EtherWithdrawn(address indexed owner, uint256 amount);
+    event ERC20Withdrawn(address indexed owner, address indexed token, uint256 amount);
         
     // Modifier to prevent reentrancy during swap and liquify
     modifier lockTheSwap {
@@ -679,27 +709,39 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Sets the market pair status for a specific account.
+     * @param account The address to set as a market pair.
+     * @param newValue The boolean value indicating market pair status.
      */
     function setMarketPairStatus(address account, bool newValue) public onlyOwner {
         isMarketPair[account] = newValue;
+        emit MarketPairStatusUpdated(account, newValue);
     }
 
     /**
      * @dev Sets the transaction limit exemption status for a holder.
+     * @param holder The address to set exemption status.
+     * @param exempt The boolean value indicating exemption.
      */
     function setIsTxLimitExempt(address holder, bool exempt) external onlyOwner {
         isTxLimitExempt[holder] = exempt;
+        emit TxLimitExemptStatusUpdated(holder, exempt);
     }
         
     /**
      * @dev Sets the fee exemption status for a specific account.
+     * @param account The address to set exemption status.
+     * @param newValue The boolean value indicating exemption.
      */
     function setIsExcludedFromFee(address account, bool newValue) public onlyOwner {
         isExcludedFromFee[account] = newValue;
+        emit FeeExemptionStatusUpdated(account, newValue);
     }
 
     /**
      * @dev Sets the buy taxes: liquidity, marketing, and team fees.
+     * @param newLiquidityTax New liquidity fee percentage.
+     * @param newMarketingTax New marketing fee percentage.
+     * @param newTeamTax New team fee percentage.
      */
     function setBuyTaxes(uint256 newLiquidityTax, uint256 newMarketingTax, uint256 newTeamTax) external onlyOwner {
         require(newLiquidityTax <= MAX_INDIVIDUAL_FEE, "PrizePot: Liquidity fee too high");
@@ -714,10 +756,15 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         _buyTeamFee = newTeamTax;
 
         _totalTaxIfBuying = _buyLiquidityFee + _buyMarketingFee + _buyTeamFee;
+
+        emit BuyTaxesUpdated(newLiquidityTax, newMarketingTax, newTeamTax);
     }
 
     /**
      * @dev Sets the sell taxes: liquidity, marketing, and team fees.
+     * @param newLiquidityTax New liquidity fee percentage.
+     * @param newMarketingTax New marketing fee percentage.
+     * @param newTeamTax New team fee percentage.
      */
     function setSellTaxes(uint256 newLiquidityTax, uint256 newMarketingTax, uint256 newTeamTax) external onlyOwner {
         require(newLiquidityTax <= MAX_INDIVIDUAL_FEE, "PrizePot: Liquidity fee too high");
@@ -732,10 +779,15 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         _sellTeamFee = newTeamTax;
 
         _totalTaxIfSelling = _sellLiquidityFee + _sellMarketingFee + _sellTeamFee;
+
+        emit SellTaxesUpdated(newLiquidityTax, newMarketingTax, newTeamTax);
     }
         
     /**
      * @dev Sets the distribution shares for liquidity, marketing, and team.
+     * @param newLiquidityShare New liquidity share percentage.
+     * @param newMarketingShare New marketing share percentage.
+     * @param newTeamShare New team share percentage.
      */
     function setDistributionSettings(uint256 newLiquidityShare, uint256 newMarketingShare, uint256 newTeamShare) external onlyOwner {
         _liquidityShare = newLiquidityShare;
@@ -743,50 +795,64 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         _teamShare = newTeamShare;
 
         _totalDistributionShares = _liquidityShare + _marketingShare + _teamShare;
+
+        emit DistributionSettingsUpdated(newLiquidityShare, newMarketingShare, newTeamShare);
     }
         
     /**
      * @dev Sets the maximum transaction amount.
+     * @param maxTxAmount New maximum transaction amount.
      */
     function setMaxTxAmount(uint256 maxTxAmount) external onlyOwner {
         require(maxTxAmount >= minTxAmount, "PrizePot: Max transaction amount too low");
         require(maxTxAmount <= maXtxAmounT, "PrizePot: Max transaction amount too high");
         _maxTxAmount = maxTxAmount;
+        emit MaxTxAmountUpdated(maxTxAmount);
     }
 
 
     /**
      * @dev Enables or disables the wallet limit.
+     * @param newValue Boolean indicating whether to enable or disable the wallet limit.
      */
     function enableDisableWalletLimit(bool newValue) external onlyOwner {
        checkWalletLimit = newValue;
+       emit WalletLimitEnabled(newValue);
     }
 
     /**
      * @dev Sets the wallet limit exemption status for a holder.
+     * @param holder The address to set exemption status.
+     * @param exempt The boolean value indicating exemption.
      */
     function setIsWalletLimitExempt(address holder, bool exempt) external onlyOwner {
         isWalletLimitExempt[holder] = exempt;
+        emit WalletLimitExemptStatusUpdated(holder, exempt);
     }
 
     /**
      * @dev Sets the maximum number of tokens a wallet can hold.
+     * @param newLimit New wallet limit.
      */
     function setWalletLimit(uint256 newLimit) external onlyOwner {
         require(newLimit >= minWalletLimit, "PrizePot: Wallet limit too low");
         require(newLimit <= maxWalleTlimiT, "PrizePot: Wallet limit too high");
         _walletMax  = newLimit;
+        emit WalletLimitUpdated(newLimit);
     }
 
     /**
      * @dev Sets the minimum number of tokens before a swap is triggered.
+     * @param newLimit New minimum token threshold for swapping.
      */
     function setNumTokensBeforeSwap(uint256 newLimit) external onlyOwner {
         minimumTokensBeforeSwap = newLimit;
+        emit NumTokensBeforeSwapUpdated(newLimit);
     }
 
     /**
      * @dev Enables or disables the swap and liquify feature.
+     * @param _enabled Boolean indicating whether to enable or disable swap and liquify.
      */
     function setSwapAndLiquifyEnabled(bool _enabled) public onlyOwner {
         swapAndLiquifyEnabled = _enabled;
@@ -795,9 +861,11 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Sets whether swap and liquify should occur only when the threshold is reached.
+     * @param newValue Boolean indicating the swap and liquify condition.
      */
     function setSwapAndLiquifyByLimitOnly(bool newValue) public onlyOwner {
         swapAndLiquifyByLimitOnly = newValue;
+        emit SwapAndLiquifyByLimitOnlyUpdated(newValue);
     }
         
     /**
@@ -809,6 +877,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Transfers Ether to a specified address.
+     * @param recipient The address to receive Ether.
+     * @param amount The amount of Ether to transfer in wei.
      */
     function transferToAddressETH(address payable recipient, uint256 amount) private {
         Address.sendValue(recipient, amount);
@@ -820,6 +890,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         
     /**
      * @dev Transfers tokens to a specified address.
+     * @param recipient The address to receive tokens.
+     * @param amount The amount of tokens to transfer.
      */
     function transfer(address recipient, uint256 amount) public override returns (bool) {
         _transfer(_msgSender(), recipient, amount);
@@ -828,6 +900,9 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Transfers tokens from one address to another using the allowance mechanism.
+     * @param sender The address sending tokens.
+     * @param recipient The address receiving tokens.
+     * @param amount The amount of tokens to transfer.
      */
     function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
         _transfer(sender, recipient, amount);
@@ -839,6 +914,9 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Internal function to handle transfers, including fee logic and swap & liquify.
+     * @param sender The address sending tokens.
+     * @param recipient The address receiving tokens.
+     * @param amount The amount of tokens to transfer.
      */
     function _transfer(address sender, address recipient, uint256 amount) private nonReentrant returns (bool) {
 
@@ -885,6 +963,9 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Performs a basic transfer without taking any fees.
+     * @param sender The address sending tokens.
+     * @param recipient The address receiving tokens.
+     * @param amount The amount of tokens to transfer.
      */
     function _basicTransfer(address sender, address recipient, uint256 amount) internal returns (bool) {
         _balances[sender] = _balances[sender] - amount; // Subtract from sender
@@ -895,6 +976,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Handles swapping tokens for ETH and adding liquidity.
+     * @param tAmount The amount of tokens to swap and liquify.
      */
     function swapAndLiquify(uint256 tAmount) private lockTheSwap {
         // Calculate tokens for liquidity
@@ -923,6 +1005,7 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         
     /**
      * @dev Swaps a specified amount of tokens for ETH using Uniswap.
+     * @param tokenAmount The amount of tokens to swap.
      */
     function swapTokensForEth(uint256 tokenAmount) private {
         // Generate the Uniswap pair path of token -> WETH
@@ -947,6 +1030,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Adds liquidity to Uniswap using the specified token and ETH amounts.
+     * @param tokenAmount The amount of tokens to add to liquidity.
+     * @param ethAmount The amount of ETH to add to liquidity.
      */
     function addLiquidity(uint256 tokenAmount, uint256 ethAmount) private nonReentrant {
         _approve(address(this), address(uniswapV2Router), tokenAmount); // Approve token transfer to the router
@@ -964,6 +1049,10 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Takes fee on transactions based on whether it's a buy or sell.
+     * @param sender The address sending tokens.
+     * @param recipient The address receiving tokens.
+     * @param amount The amount of tokens to transfer.
+     * @return The amount after deducting fees.
      */
     function takeFee(address sender, address recipient, uint256 amount) internal returns (uint256) {
         uint256 feeAmount = 0;
@@ -983,4 +1072,86 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         return amount - feeAmount; // Return the amount after fee deduction
     }
         
+    /**
+     * @dev Withdraws Ether from the contract to the owner's address.
+     * @param amount The amount of Ether to withdraw in wei.
+     */
+    function withdrawEther(uint256 amount) external onlyOwner nonReentrant {
+        require(address(this).balance >= amount, "PrizePot: Insufficient Ether balance");
+        payable(owner()).transfer(amount);
+        emit EtherWithdrawn(owner(), amount);
+    }
+
+    /**
+     * @dev Withdraws ERC20 tokens mistakenly sent to the contract.
+     * @param tokenAddress The address of the ERC20 token to withdraw.
+     * @param tokenAmount The amount of tokens to withdraw.
+     */
+    function withdrawERC20(address tokenAddress, uint256 tokenAmount) external onlyOwner nonReentrant {
+        require(tokenAddress != address(this), "PrizePot: Cannot withdraw own tokens");
+        IERC20(tokenAddress).transfer(owner(), tokenAmount);
+        emit ERC20Withdrawn(owner(), tokenAddress, tokenAmount);
+    }
+
+    // ----------------- Event Declarations for Enhanced Access Control Transparency -----------------
+    
+    /**
+     * @dev Emitted when the market pair status of an account is updated.
+     */
+    event MarketPairStatusUpdated(address indexed account, bool newValue);
+
+    /**
+     * @dev Emitted when the transaction limit exemption status of a holder is updated.
+     */
+    event TxLimitExemptStatusUpdated(address indexed holder, bool exempt);
+
+    /**
+     * @dev Emitted when the fee exemption status of an account is updated.
+     */
+    event FeeExemptionStatusUpdated(address indexed account, bool newValue);
+
+    /**
+     * @dev Emitted when the buy taxes are updated.
+     */
+    event BuyTaxesUpdated(uint256 liquidityTax, uint256 marketingTax, uint256 teamTax);
+
+    /**
+     * @dev Emitted when the sell taxes are updated.
+     */
+    event SellTaxesUpdated(uint256 liquidityTax, uint256 marketingTax, uint256 teamTax);
+
+    /**
+     * @dev Emitted when the distribution shares are updated.
+     */
+    event DistributionSettingsUpdated(uint256 liquidityShare, uint256 marketingShare, uint256 teamShare);
+
+    /**
+     * @dev Emitted when the maximum transaction amount is updated.
+     */
+    event MaxTxAmountUpdated(uint256 maxTxAmount);
+
+    /**
+     * @dev Emitted when the wallet limit is enabled or disabled.
+     */
+    event WalletLimitEnabled(bool enabled);
+
+    /**
+     * @dev Emitted when the wallet limit exemption status of a holder is updated.
+     */
+    event WalletLimitExemptStatusUpdated(address indexed holder, bool exempt);
+
+    /**
+     * @dev Emitted when the wallet limit is updated.
+     */
+    event WalletLimitUpdated(uint256 newLimit);
+
+    /**
+     * @dev Emitted when the number of tokens before swap is updated.
+     */
+    event NumTokensBeforeSwapUpdated(uint256 newLimit);
+
+    /**
+     * @dev Emitted when swap and liquify by limit only is updated.
+     */
+    event SwapAndLiquifyByLimitOnlyUpdated(bool newValue);
 }
