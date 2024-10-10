@@ -3,7 +3,7 @@ pragma solidity ^0.8.27;
 
 /**
  * @title PrizePot (PPOT) Smart Contract
- * @dev ERC20 Token with Fee Management and Automated Liquidity Provision
+ * @dev ERC20 Token with Fee Management, Automated Liquidity Provision, and Enhanced Security Features
  *
  * @custom:dev-run-script ./scripts/deploy.js
  */
@@ -497,35 +497,35 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
     mapping (address => bool) public isTxLimitExempt;
     mapping (address => bool) public isMarketPair;
 
-    // Fees for buying
-    uint256 public _buyLiquidityFee = 2;
-    uint256 public _buyMarketingFee = 2;
-    uint256 public _buyTeamFee = 2;
+    // Fees for buying (in basis points: 1 BP = 0.01%)
+    uint256 public _buyLiquidityFeeBP = 200; // 2%
+    uint256 public _buyMarketingFeeBP = 200; // 2%
+    uint256 public _buyTeamFeeBP = 200; // 2%
         
-    // Fees for selling
-    uint256 public _sellLiquidityFee = 2;
-    uint256 public _sellMarketingFee = 2;
-    uint256 public _sellTeamFee = 4;
+    // Fees for selling (in basis points)
+    uint256 public _sellLiquidityFeeBP = 200; // 2%
+    uint256 public _sellMarketingFeeBP = 200; // 2%
+    uint256 public _sellTeamFeeBP = 400; // 4%
 
-    // Distribution shares
-    uint256 public _liquidityShare = 4;
-    uint256 public _marketingShare = 4;
-    uint256 public _teamShare = 16;
+    // Distribution shares (in basis points)
+    uint256 public _liquidityShareBP = 400; // 4%
+    uint256 public _marketingShareBP = 400; // 4%
+    uint256 public _teamShareBP = 1600; // 16%
 
-    // Total taxes
-    uint256 public _totalTaxIfBuying = 6;
-    uint256 public _totalTaxIfSelling = 8;
-    uint256 public _totalDistributionShares = 24;
+    // Total taxes (in basis points)
+    uint256 public _totalTaxIfBuyingBP = 600; // 6%
+    uint256 public _totalTaxIfSellingBP = 800; // 8%
+    uint256 public _totalDistributionSharesBP = 2400; // 24%
 
     // Total supply and limits
     uint256 private _totalSupply = 10000000000000 * (10 ** _decimals);
     uint256 public _maxTxAmount = _totalSupply; 
     uint256 public _walletMax = _totalSupply;
-    uint256 private minimumTokensBeforeSwap = _totalSupply; 
+    uint256 private minimumTokensBeforeSwap = _totalSupply / 100; // 1% of total supply
 
     // Maximum fee limits
-    uint256 public constant MAX_TOTAL_FEE = 20; // Maximum total fee is 20%
-    uint256 public constant MAX_INDIVIDUAL_FEE = 10; // Maximum individual fee is 10%
+    uint256 public constant MAX_TOTAL_FEE_BP = 2000; // Maximum total fee is 20%
+    uint256 public constant MAX_INDIVIDUAL_FEE_BP = 1000; // Maximum individual fee is 10%
 
     // Minimum and maximum transaction and wallet limits
     uint256 public minTxAmount = _totalSupply / 10000; // Minimum 0.01% of total supply
@@ -598,9 +598,9 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         isExcludedFromFee[address(this)] = true;
             
         // Calculate total taxes for buying and selling
-        _totalTaxIfBuying = _buyLiquidityFee + _buyMarketingFee + _buyTeamFee;
-        _totalTaxIfSelling = _sellLiquidityFee + _sellMarketingFee + _sellTeamFee;
-        _totalDistributionShares = _liquidityShare + _marketingShare + _teamShare;
+        _totalTaxIfBuyingBP = _buyLiquidityFeeBP + _buyMarketingFeeBP + _buyTeamFeeBP;
+        _totalTaxIfSellingBP = _sellLiquidityFeeBP + _sellMarketingFeeBP + _sellTeamFeeBP;
+        _totalDistributionSharesBP = _liquidityShareBP + _marketingShareBP + _teamShareBP;
 
         // Exempt owner, Uniswap pair, and contract from wallet limit
         isWalletLimitExempt[owner()] = true;
@@ -618,6 +618,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         _balances[_msgSender()] = _totalSupply;
         emit Transfer(address(0), _msgSender(), _totalSupply);
     }
+
+    // ----------------- ERC20 Standard Functions -----------------
 
     /**
      * @dev Returns the name of the token.
@@ -707,6 +709,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         emit Approval(owner_, spender, amount); // Emit Approval event
     }
 
+    // ----------------- Administrative Functions -----------------
+
     /**
      * @dev Sets the market pair status for a specific account.
      * @param account The address to set as a market pair.
@@ -739,64 +743,64 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
 
     /**
      * @dev Sets the buy taxes: liquidity, marketing, and team fees.
-     * @param newLiquidityTax New liquidity fee percentage.
-     * @param newMarketingTax New marketing fee percentage.
-     * @param newTeamTax New team fee percentage.
+     * @param newLiquidityFeeBP New liquidity fee percentage in basis points.
+     * @param newMarketingFeeBP New marketing fee percentage in basis points.
+     * @param newTeamFeeBP New team fee percentage in basis points.
      */
-    function setBuyTaxes(uint256 newLiquidityTax, uint256 newMarketingTax, uint256 newTeamTax) external onlyOwner {
-        require(newLiquidityTax <= MAX_INDIVIDUAL_FEE, "PrizePot: Liquidity fee too high");
-        require(newMarketingTax <= MAX_INDIVIDUAL_FEE, "PrizePot: Marketing fee too high");
-        require(newTeamTax <= MAX_INDIVIDUAL_FEE, "PrizePot: Team fee too high");
+    function setBuyTaxes(uint256 newLiquidityFeeBP, uint256 newMarketingFeeBP, uint256 newTeamFeeBP) external onlyOwner {
+        require(newLiquidityFeeBP <= MAX_INDIVIDUAL_FEE_BP, "PrizePot: Liquidity fee too high");
+        require(newMarketingFeeBP <= MAX_INDIVIDUAL_FEE_BP, "PrizePot: Marketing fee too high");
+        require(newTeamFeeBP <= MAX_INDIVIDUAL_FEE_BP, "PrizePot: Team fee too high");
 
-        uint256 totalFee = newLiquidityTax + newMarketingTax + newTeamTax;
-        require(totalFee <= MAX_TOTAL_FEE, "PrizePot: Total fee too high");
+        uint256 totalFeeBP = newLiquidityFeeBP + newMarketingFeeBP + newTeamFeeBP;
+        require(totalFeeBP <= MAX_TOTAL_FEE_BP, "PrizePot: Total fee too high");
 
-        _buyLiquidityFee = newLiquidityTax;
-        _buyMarketingFee = newMarketingTax;
-        _buyTeamFee = newTeamTax;
+        _buyLiquidityFeeBP = newLiquidityFeeBP;
+        _buyMarketingFeeBP = newMarketingFeeBP;
+        _buyTeamFeeBP = newTeamFeeBP;
 
-        _totalTaxIfBuying = _buyLiquidityFee + _buyMarketingFee + _buyTeamFee;
+        _totalTaxIfBuyingBP = _buyLiquidityFeeBP + _buyMarketingFeeBP + _buyTeamFeeBP;
 
-        emit BuyTaxesUpdated(newLiquidityTax, newMarketingTax, newTeamTax);
+        emit BuyTaxesUpdated(newLiquidityFeeBP, newMarketingFeeBP, newTeamFeeBP);
     }
 
     /**
      * @dev Sets the sell taxes: liquidity, marketing, and team fees.
-     * @param newLiquidityTax New liquidity fee percentage.
-     * @param newMarketingTax New marketing fee percentage.
-     * @param newTeamTax New team fee percentage.
+     * @param newLiquidityFeeBP New liquidity fee percentage in basis points.
+     * @param newMarketingFeeBP New marketing fee percentage in basis points.
+     * @param newTeamFeeBP New team fee percentage in basis points.
      */
-    function setSellTaxes(uint256 newLiquidityTax, uint256 newMarketingTax, uint256 newTeamTax) external onlyOwner {
-        require(newLiquidityTax <= MAX_INDIVIDUAL_FEE, "PrizePot: Liquidity fee too high");
-        require(newMarketingTax <= MAX_INDIVIDUAL_FEE, "PrizePot: Marketing fee too high");
-        require(newTeamTax <= MAX_INDIVIDUAL_FEE, "PrizePot: Team fee too high");
+    function setSellTaxes(uint256 newLiquidityFeeBP, uint256 newMarketingFeeBP, uint256 newTeamFeeBP) external onlyOwner {
+        require(newLiquidityFeeBP <= MAX_INDIVIDUAL_FEE_BP, "PrizePot: Liquidity fee too high");
+        require(newMarketingFeeBP <= MAX_INDIVIDUAL_FEE_BP, "PrizePot: Marketing fee too high");
+        require(newTeamFeeBP <= MAX_INDIVIDUAL_FEE_BP, "PrizePot: Team fee too high");
 
-        uint256 totalFee = newLiquidityTax + newMarketingTax + newTeamTax;
-        require(totalFee <= MAX_TOTAL_FEE, "PrizePot: Total fee too high");
+        uint256 totalFeeBP = newLiquidityFeeBP + newMarketingFeeBP + newTeamFeeBP;
+        require(totalFeeBP <= MAX_TOTAL_FEE_BP, "PrizePot: Total fee too high");
 
-        _sellLiquidityFee = newLiquidityTax;
-        _sellMarketingFee = newMarketingTax;
-        _sellTeamFee = newTeamTax;
+        _sellLiquidityFeeBP = newLiquidityFeeBP;
+        _sellMarketingFeeBP = newMarketingFeeBP;
+        _sellTeamFeeBP = newTeamFeeBP;
 
-        _totalTaxIfSelling = _sellLiquidityFee + _sellMarketingFee + _sellTeamFee;
+        _totalTaxIfSellingBP = _sellLiquidityFeeBP + _sellMarketingFeeBP + _sellTeamFeeBP;
 
-        emit SellTaxesUpdated(newLiquidityTax, newMarketingTax, newTeamTax);
+        emit SellTaxesUpdated(newLiquidityFeeBP, newMarketingFeeBP, newTeamFeeBP);
     }
         
     /**
      * @dev Sets the distribution shares for liquidity, marketing, and team.
-     * @param newLiquidityShare New liquidity share percentage.
-     * @param newMarketingShare New marketing share percentage.
-     * @param newTeamShare New team share percentage.
+     * @param newLiquidityShareBP New liquidity share percentage in basis points.
+     * @param newMarketingShareBP New marketing share percentage in basis points.
+     * @param newTeamShareBP New team share percentage in basis points.
      */
-    function setDistributionSettings(uint256 newLiquidityShare, uint256 newMarketingShare, uint256 newTeamShare) external onlyOwner {
-        _liquidityShare = newLiquidityShare;
-        _marketingShare = newMarketingShare;
-        _teamShare = newTeamShare;
+    function setDistributionSettings(uint256 newLiquidityShareBP, uint256 newMarketingShareBP, uint256 newTeamShareBP) external onlyOwner {
+        _liquidityShareBP = newLiquidityShareBP;
+        _marketingShareBP = newMarketingShareBP;
+        _teamShareBP = newTeamShareBP;
 
-        _totalDistributionShares = _liquidityShare + _marketingShare + _teamShare;
+        _totalDistributionSharesBP = _liquidityShareBP + _marketingShareBP + _teamShareBP;
 
-        emit DistributionSettingsUpdated(newLiquidityShare, newMarketingShare, newTeamShare);
+        emit DistributionSettingsUpdated(newLiquidityShareBP, newMarketingShareBP, newTeamShareBP);
     }
         
     /**
@@ -875,6 +879,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         return _totalSupply - balanceOf(deadAddress);
     }
 
+    // ----------------- Withdrawal Functions -----------------
+
     /**
      * @dev Transfers Ether to a specified address.
      * @param recipient The address to receive Ether.
@@ -911,6 +917,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         _approve(sender, _msgSender(), _allowances[sender][_msgSender()] - amount);
         return true;
     }
+
+    // ----------------- Internal Transfer Function -----------------
 
     /**
      * @dev Internal function to handle transfers, including fee logic and swap & liquify.
@@ -980,17 +988,17 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
      */
     function swapAndLiquify(uint256 tAmount) private lockTheSwap {
         // Calculate tokens for liquidity
-        uint256 tokensForLP = (tAmount * _liquidityShare) / _totalDistributionShares / 2;
+        uint256 tokensForLP = (tAmount * _liquidityShareBP) / _totalDistributionSharesBP / 2;
         uint256 tokensForSwap = tAmount - tokensForLP; // Remaining tokens to swap
 
         swapTokensForEth(tokensForSwap); // Swap tokens for ETH
         uint256 amountReceived = address(this).balance; // Get the ETH received from swap
 
-        uint256 totalBNBFee = _totalDistributionShares - (_liquidityShare / 2);
+        uint256 totalBNBFee = _totalDistributionSharesBP - (_liquidityShareBP / 2);
             
         // Calculate amounts for liquidity, team, and marketing
-        uint256 amountBNBLiquidity = (amountReceived * _liquidityShare) / totalBNBFee / 2;
-        uint256 amountBNBTeam = (amountReceived * _teamShare) / totalBNBFee;
+        uint256 amountBNBLiquidity = (amountReceived * _liquidityShareBP) / totalBNBFee / 2;
+        uint256 amountBNBTeam = (amountReceived * _teamShareBP) / totalBNBFee;
         uint256 amountBNBMarketing = amountReceived - amountBNBLiquidity - amountBNBTeam;
 
         if(amountBNBMarketing > 0)
@@ -1058,10 +1066,10 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         uint256 feeAmount = 0;
             
         if(isMarketPair[sender]) {
-            feeAmount = (amount * _totalTaxIfBuying) / 100; // Calculate buy fee
+            feeAmount = (amount * _totalTaxIfBuyingBP) / 10000; // Calculate buy fee
         }
         else if(isMarketPair[recipient]) {
-            feeAmount = (amount * _totalTaxIfSelling) / 100; // Calculate sell fee
+            feeAmount = (amount * _totalTaxIfSellingBP) / 10000; // Calculate sell fee
         }
             
         if(feeAmount > 0) {
@@ -1072,6 +1080,8 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
         return amount - feeAmount; // Return the amount after fee deduction
     }
         
+    // ----------------- Withdrawal Functions -----------------
+
     /**
      * @dev Withdraws Ether from the contract to the owner's address.
      * @param amount The amount of Ether to withdraw in wei.
@@ -1113,17 +1123,17 @@ contract PrizePot is Context, IERC20, Ownable, ReentrancyGuard {
     /**
      * @dev Emitted when the buy taxes are updated.
      */
-    event BuyTaxesUpdated(uint256 liquidityTax, uint256 marketingTax, uint256 teamTax);
+    event BuyTaxesUpdated(uint256 liquidityFeeBP, uint256 marketingFeeBP, uint256 teamFeeBP);
 
     /**
      * @dev Emitted when the sell taxes are updated.
      */
-    event SellTaxesUpdated(uint256 liquidityTax, uint256 marketingTax, uint256 teamTax);
+    event SellTaxesUpdated(uint256 liquidityFeeBP, uint256 marketingFeeBP, uint256 teamFeeBP);
 
     /**
      * @dev Emitted when the distribution shares are updated.
      */
-    event DistributionSettingsUpdated(uint256 liquidityShare, uint256 marketingShare, uint256 teamShare);
+    event DistributionSettingsUpdated(uint256 liquidityShareBP, uint256 marketingShareBP, uint256 teamShareBP);
 
     /**
      * @dev Emitted when the maximum transaction amount is updated.
